@@ -34,7 +34,8 @@ build/
 !**/src/test/**/build/
 
 ### VS Code ###
-.vscode/
+.vscode/*
+!.vscode/settings.json
 
 ### Sistema operativo / Office ###
 .DS_Store
