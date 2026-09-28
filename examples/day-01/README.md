@@ -18,6 +18,53 @@ Servidor "a pelo" (sin Spring Boot, puertos 8081 y 8082):
 ./mvnw compile exec:java -Dexec.mainClass=com.curso.webflux.day01.core.RawHttpHandlerServer
 ```
 
+## La carpeta `core`: lo que Spring Boot monta por debajo
+
+`catalog` muestra el nivel más alto (un `@RestController`). La carpeta `core` enseña las capas que hay debajo
+y que Spring Boot configura automáticamente:
+
+```text
+Netty ─► HttpHandler ─► WebFilter(s) ─► DispatcherHandler ─► @RestController (catalog)
+          ①                ②                 ③
+```
+
+| Clase | Capa | Qué demuestra | Cómo se ejecuta |
+|---|---|---|---|
+| `RawHttpHandlerServer` | ① `HttpHandler` y WebHandler API | Servidor **sin Spring Boot**: puerto 8081 con un `HttpHandler` puro; puerto 8082 con `WebHandler` + `WebFilter` montados con `WebHttpHandlerBuilder` | Programa **independiente** con su propio `main` (ver abajo) |
+| `TimingWebFilter` | ② `WebFilter` | Intercepta todas las peticiones: cabecera `X-Response-Time` y log con método, ruta, estado e hilo | Automático al arrancar la aplicación |
+| `DispatcherInfoController` | ③ `DispatcherHandler` | Lista los `HandlerMapping`, `HandlerAdapter`, `HandlerResultHandler`, `WebFilter` y `WebExceptionHandler` reales con su orden | `GET /internals/dispatcher` |
+
+### ① Servidor "a pelo": `RawHttpHandlerServer`
+
+- **VS Code:** abrir `core/RawHttpHandlerServer.java` y pulsar **Run** encima del `main`.
+- **Terminal:**
+
+  ```bash
+  ./mvnw compile exec:java -Dexec.mainClass=com.curso.webflux.day01.core.RawHttpHandlerServer
+  ```
+
+```bash
+curl -i http://localhost:8081/prueba   # HttpHandler: responde con método, URI e hilo reactor-http-nio-*
+curl -i http://localhost:8082/Pedro    # WebHandler + WebFilter: "Hola Pedro..." y cabecera X-Powered-By
+```
+
+No usa el puerto 8080, así que puede ejecutarse a la vez que la aplicación. Se para con `Ctrl+C`.
+
+### ② y ③ Filtro e inspección del `DispatcherHandler`
+
+Con la aplicación arrancada (`./mvnw spring-boot:run`):
+
+```bash
+curl -i http://localhost:8080/api/products/1      # cabecera X-Response-Time añadida por TimingWebFilter
+curl http://localhost:8080/internals/dispatcher   # beans especiales del DispatcherHandler
+```
+
+En el log aparece una línea por petición escrita por el filtro:
+`[b78eceb2-6] GET /api/products/1 -> 200 OK (77 ms, hilo reactor-http-nio-5)`.
+
+Teoría relacionada: [3. Núcleo reactivo](../../docs/day-01/03-nucleo-reactivo.md) y
+[4. DispatcherHandler](../../docs/day-01/04-dispatcherhandler.md).
+
 ## Estructura
 
 ```text

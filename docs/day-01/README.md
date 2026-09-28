@@ -37,6 +37,9 @@ cd examples/day-01
 
 Abre <http://localhost:8080> en Chrome: verás los precios cambiando en tiempo real (Server-Sent Events).
 Instrucciones completas del ejemplo: [examples/day-01/README.md](../../examples/day-01/README.md).
+La carpeta `core` (servidor sin Spring Boot, `WebFilter` e inspección del `DispatcherHandler`) tiene su propia
+explicación y forma de ejecución en
+[La carpeta core](../../examples/day-01/README.md#la-carpeta-core-lo-que-spring-boot-monta-por-debajo).
 
 ## Mapa del ejemplo del día
 
