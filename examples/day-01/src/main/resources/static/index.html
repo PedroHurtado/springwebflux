@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Día 1 - Catálogo reactivo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; }
+    code { background: #f2f2f2; padding: 0 .3rem; }
+    table { border-collapse: collapse; width: 100%; }
+    td, th { border-bottom: 1px solid #ddd; padding: .4rem; text-align: left; }
+    .up { color: #0a7d2c; } .down { color: #b3261e; }
+  </style>
+</head>
+<body>
+  <h1>Catálogo reactivo — Día 1</h1>
+  <p>Precios en tiempo real vía <strong>Server-Sent Events</strong>
+     (<code>GET /api/products/prices</code>, <code>text/event-stream</code>).</p>
+  <button id="toggle">Parar</button>
+  <table>
+    <thead><tr><th>Producto</th><th>Anterior</th><th>Nuevo</th><th>Hora</th></tr></thead>
+    <tbody id="events"></tbody>
+  </table>
+  <h2>Otros endpoints</h2>
+  <ul>
+    <li><a href="/api/products">/api/products</a> (JSON)</li>
+    <li><a href="/api/products?category=perifericos">/api/products?category=perifericos</a></li>
+    <li><a href="/api/demo/non-blocking?ms=2000">/api/demo/non-blocking?ms=2000</a></li>
+    <li><a href="/internals/dispatcher">/internals/dispatcher</a> (beans del DispatcherHandler)</li>
+    <li><a href="/actuator/mappings">/actuator/mappings</a></li>
+  </ul>
+  <script>
+    let source;
+    const tbody = document.getElementById('events');
+    const button = document.getElementById('toggle');
+
+    function start() {
+      source = new EventSource('/api/products/prices');
+      source.onmessage = (e) => {
+        const c = JSON.parse(e.data);
+        const row = document.createElement('tr');
+        const cls = c.newPrice >= c.oldPrice ? 'up' : 'down';
+        row.innerHTML = `<td>${c.name}</td><td>${c.oldPrice}</td><td class="${cls}">${c.newPrice}</td>`
+                      + `<td>${new Date().toLocaleTimeString()}</td>`;
+        tbody.prepend(row);
+        while (tbody.children.length > 15) tbody.lastChild.remove();
+      };
+      button.textContent = 'Parar';
+    }
+
+    button.onclick = () => {
+      if (source && source.readyState !== EventSource.CLOSED) { source.close(); button.textContent = 'Reanudar'; }
+      else start();
+    };
+    start();
+  </script>
+</body>
+</html>

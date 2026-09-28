@@ -1,0 +1,74 @@
+### Día 1 — Catálogo reactivo
+@host = http://localhost:8080
+
+### Lista como array JSON
+GET {{host}}/api/products
+Accept: application/json
+
+### Lista en streaming (NDJSON: un JSON por línea)
+GET {{host}}/api/products
+Accept: application/x-ndjson
+
+### Filtro por categoría
+GET {{host}}/api/products?category=perifericos
+
+### Un producto
+GET {{host}}/api/products/1
+
+### Producto inexistente -> 404
+GET {{host}}/api/products/no-existe
+
+### Crear -> 201 + Location
+POST {{host}}/api/products
+Content-Type: application/json
+
+{
+  "name": "Webcam HD",
+  "category": "perifericos",
+  "price": 39.90,
+  "stock": 12
+}
+
+### Crear inválido -> 400
+POST {{host}}/api/products
+Content-Type: application/json
+
+{
+  "name": "",
+  "category": "perifericos",
+  "price": -1,
+  "stock": 1
+}
+
+### Actualizar
+PUT {{host}}/api/products/5
+Content-Type: application/json
+
+{
+  "name": "Auriculares Pro",
+  "category": "audio",
+  "price": 79.00,
+  "stock": 30
+}
+
+### Borrar -> 204 (repetir -> 404)
+DELETE {{host}}/api/products/5
+
+### Server-Sent Events (mejor desde el navegador: http://localhost:8080)
+GET {{host}}/api/products/prices
+Accept: text/event-stream
+
+### Modelo de hilos
+GET {{host}}/api/demo/non-blocking?ms=2000
+
+###
+GET {{host}}/api/demo/blocking?ms=2000
+
+###
+GET {{host}}/api/demo/offloaded?ms=2000
+
+### Beans especiales del DispatcherHandler
+GET {{host}}/internals/dispatcher
+
+### Rutas registradas (Actuator)
+GET {{host}}/actuator/mappings
