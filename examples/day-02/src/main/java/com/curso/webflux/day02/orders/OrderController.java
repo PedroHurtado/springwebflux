@@ -21,13 +21,13 @@ import reactor.core.publisher.Mono;
  * Los MISMOS pedidos que OrderRouter/OrderHandler, pero con un controlador anotado.
  *
  * Sirve para comparar tres cosas (ver docs/day-02/02-pedidos-validacion-reactiva.md):
- *   1. Este controlador frente al de Spring MVC: la firma es casi idéntica; solo cambia el tipo de retorno
- *      (Mono<ResponseEntity<Order>> en vez de ResponseEntity<Order>).
+ *   1. Este controlador frente al de Spring MVC: el cuerpo llega como Mono<OrderRequest> (no como
+ *      OrderRequest) y se devuelve Mono<ResponseEntity<Order>> (no ResponseEntity<Order>).
  *   2. Este controlador frente al endpoint funcional (OrderHandler): mismo servicio, otro modelo de programación.
  *   3. La validación de NEGOCIO no está aquí: está en OrderService.create, compartida por los dos modelos.
  *
  * Validación en dos niveles:
- *   - @Valid @RequestBody  -> estructural (Bean Validation) -> WebExchangeBindException -> 400
+ *   - @Valid @RequestBody Mono<...> -> estructural (Bean Validation) -> onError(WebExchangeBindException) -> 400
  *   - service.create(...)  -> negocio (existe el producto, hay stock) -> OrderRejectedException -> 422
  * Ambas excepciones las convierte en ProblemDetail el GlobalExceptionHandler (@RestControllerAdvice),
  * que sí se aplica aquí porque es un controlador anotado.
@@ -60,15 +60,24 @@ public class OrderController {
      *       return ResponseEntity.created(...).body(order);
      *   }
      *
-     * Aquí service.create devuelve un Mono: el método termina enseguida y la respuesta se construye
-     * con map(...) cuando el pedido está validado y guardado. Si la validación de negocio falla,
-     * el Mono emite OrderRejectedException, el map no se ejecuta y la respuesta es 422.
+     * @RequestBody Mono<OrderRequest>: el método se invoca en cuanto llegan las cabeceras, SIN esperar
+     * al cuerpo. El cuerpo es un Mono que se decodifica (y se valida con @Valid) cuando alguien se
+     * suscribe, es decir, cuando WebFlux se suscribe al Mono que devolvemos.
+     *
+     * Consecuencia importante: un error de @Valid ya NO se lanza antes de entrar en el método.
+     * Llega como señal onError(WebExchangeBindException) DENTRO de este Mono; como no la tratamos
+     * (no hay onErrorResume), sigue hasta GlobalExceptionHandler -> 400. Podríamos capturarla aquí:
+     *     request.onErrorResume(WebExchangeBindException.class, ex -> ...)
+     *
+     * Flujo completo, un único pipeline:
+     *   cuerpo -> @Valid (400) -> service.create: validación de negocio (422) -> 201 Created
      */
     @PostMapping
-    public Mono<ResponseEntity<Order>> create(@Valid @RequestBody OrderRequest request,
+    public Mono<ResponseEntity<Order>> create(@Valid @RequestBody Mono<OrderRequest> request,
                                               UriComponentsBuilder uriBuilder) {
-        return service.create(request)
-                .map(order -> {
+        return request                                     // Mono<OrderRequest>: aún no se ha leído el cuerpo
+                .flatMap(service::create)                  // flatMap: service.create devuelve otro Mono
+                .map(order -> {                            // solo si el pedido es válido (400 y 422 lo saltan)
                     URI location = uriBuilder.path("/api/annotated/orders/{id}").buildAndExpand(order.id()).toUri();
                     return ResponseEntity.created(location).body(order);
                 });

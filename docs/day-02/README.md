@@ -92,6 +92,7 @@ catálogo (@RestController)      ──►     catálogo (@RestController) + bin
 8. ¿Qué diferencia hay entre `.encode().buildAndExpand(vars)` y `.buildAndExpand(vars).encode()`?
 9. ¿Cuándo envía el navegador una petición *preflight*? ¿Qué responde el servidor si el origen no está permitido?
 10. ¿Por qué no se debe anotar `WebConfig` con `@EnableWebFlux` en una aplicación Spring Boot?
+11. ¿Funcionaría `OrderRequest` con un campo `Flux<DetailRequest> details` en lugar de `List<DetailRequest>`?
 
 <details>
 <summary>Respuestas</summary>
@@ -120,6 +121,11 @@ catálogo (@RestController)      ──►     catálogo (@RestController) + bin
    el servidor responde **403** al preflight y el navegador no envía la petición real.
 10. Porque `@EnableWebFlux` importa la configuración de WebFlux "a mano" y **desactiva la autoconfiguración** de
     Spring Boot (codecs, propiedades `spring.webflux.*`, recursos estáticos, conversores de Boot...).
+11. No. Jackson no crea un `Flux` a partir de un campo JSON (solo se decodifica `Flux<T>` como cuerpo completo) y
+    Bean Validation no valida un `Flux`. Además un `Flux` es un proceso, no un dato: los DTO y el dominio llevan
+    `List` y el `Flux` aparece al procesarlos (`Flux.fromIterable`). Lo que sí funciona es recibir las líneas
+    como cuerpo en *streaming* (`@RequestBody Flux<DetailRequest>` con NDJSON), programando a mano las reglas
+    sobre el conjunto (mínimo, máximo, repetidos). Ver [2.5 ¿Y si las líneas fuesen un `Flux`?](02-pedidos-validacion-reactiva.md).
 </details>
 
 ## Referencias del día

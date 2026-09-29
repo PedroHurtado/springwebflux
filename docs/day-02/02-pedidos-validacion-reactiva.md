@@ -81,6 +81,17 @@ public record OrderDetail(String productId, String productName, BigDecimal unitP
 - `OrderDetail.of(product, quantity)` **solo se puede construir a partir de un `Product` que existe**: si el
   código llega a crear una línea, la validación ya ha pasado.
 
+**¿Por qué `List<OrderDetail>` y no `Flux<OrderDetail>`, si la aplicación es reactiva?**
+
+Porque un `Flux` no es un **dato**, es un **proceso** que produce datos cuando alguien se suscribe. Los DTO, los
+records del dominio y las entidades contienen datos (`List`); el `Flux` aparece al **procesarlos**
+(`Flux.fromIterable(request.details())`). Un `Flux` como campo ni se puede leer del JSON ni validar con Bean
+Validation ni serializar en la respuesta. Se explica en detalle, junto con la alternativa que sí funciona
+(recibir las líneas en *streaming*), en [2.5 ¿Y si las líneas fuesen un `Flux`?](#25-y-si-las-líneas-details-fuesen-un-flux-list-vs-flux-en-el-modelo).
+
+> 📌 **Regla:** `Flux`/`Mono` en las **firmas** (parámetros y retornos, `@RequestBody`, repositorios);
+> **nunca** como campo de un DTO, un record del dominio o una entidad.
+
 ## 2.2 Qué hay que validar
 
 | Regla | Tipo | ¿Necesita E/S? | Dónde | Si falla |
@@ -96,6 +107,10 @@ public record OrderDetail(String productId, String productName, BigDecimal unitP
 La validación estructural se resuelve igual en MVC y en WebFlux (anotaciones). La diferencia está en las dos
 últimas filas: **cada línea exige una consulta al catálogo**, que en el ejemplo tarda 50 ms
 (`ProductRepository.findById` usa `delayElement`, como haría una base de datos).
+
+> ⚠️ Las reglas "al menos una línea", "como mucho 20" y "sin repetidos" funcionan con anotaciones **porque
+> `details` es una `List`**. Si las líneas llegasen como `Flux` (en *streaming*), esas tres reglas habría que
+> programarlas a mano dentro del *pipeline*: ver [2.5](#25-y-si-las-líneas-details-fuesen-un-flux-list-vs-flux-en-el-modelo).
 
 Requisitos de negocio:
 
@@ -341,20 +356,41 @@ public ResponseEntity<Order> create(@Valid @RequestBody OrderRequest request, Ur
 
 // Spring WebFlux (anotado) — orders/OrderController.java
 @PostMapping                                                     // @RequestMapping("/api/annotated/orders")
-public Mono<ResponseEntity<Order>> create(@Valid @RequestBody OrderRequest request,
+public Mono<ResponseEntity<Order>> create(@Valid @RequestBody Mono<OrderRequest> request,
                                           UriComponentsBuilder uriBuilder) {
-    return service.create(request)                               // Mono<Order>: nadie espera
+    return request                                               // el cuerpo AÚN no se ha leído
+            .flatMap(service::create)                            // Mono<Order>: nadie espera
             .map(order -> ResponseEntity
                     .created(uriBuilder.path("/api/annotated/orders/{id}").buildAndExpand(order.id()).toUri())
                     .body(order));                               // solo si el pedido es válido
 }
 ```
 
+**¿Qué cambia al recibir `Mono<OrderRequest>` en vez de `OrderRequest`?**
+
+| | `@Valid @RequestBody OrderRequest` | `@Valid @RequestBody Mono<OrderRequest>` |
+|---|---|---|
+| Cuándo se invoca el método | Después de leer, decodificar y validar el cuerpo | En cuanto llega la petición; el cuerpo se lee al suscribirse |
+| Error de `@Valid` | Se lanza **antes** de entrar al método | Llega como señal **`onError`** dentro del `Mono` |
+| ¿Se puede tratar en el método? | No (solo en un `@ExceptionHandler`) | Sí: `request.onErrorResume(WebExchangeBindException.class, ...)` |
+| Si no se trata | `GlobalExceptionHandler` → 400 | Igual: la señal recorre el *pipeline* → `GlobalExceptionHandler` → 400 |
+
+Con `Mono<OrderRequest>` **todo el recorrido es un único pipeline**, y cada fallo es una señal de error que salta
+los pasos siguientes:
+
+```text
+request ──► @Valid ──► flatMap(service::create) ──► map(ResponseEntity.created) ──► 201
+              │                  │
+              └ onError → 400    └ onError (OrderRejectedException) → 422
+```
+
 | | MVC | WebFlux anotado | WebFlux funcional (`OrderHandler`) |
 |---|---|---|---|
-| Validación estructural (400) | `@Valid` | `@Valid` | `validator.validate(...)` a mano |
+| Cuerpo | `OrderRequest` | `Mono<OrderRequest>` | `request.bodyToMono(OrderRequest.class)` |
+| Validación estructural (400) | `@Valid` (excepción antes del método) | `@Valid` (señal `onError` del `Mono`) | `validator.validate(...)` a mano |
 | Validación de negocio (422) | `throw` en el servicio | `Mono.error` en el servicio | `Mono.error` en el servicio (el mismo) |
 | Error → `ProblemDetail` | `@RestControllerAdvice` | `@RestControllerAdvice` (`GlobalExceptionHandler`) | `onError` en `OrderRouter` |
+| Llamada al servicio | `service.create(request)` | `request.flatMap(service::create)` | `.flatMap(service::create)` |
 | Respuesta 201 | `return ResponseEntity...` | `.map(order -> ResponseEntity...)` | `.flatMap(order -> ServerResponse.created(...)...)` |
 
 Si `service.create` emite `OrderRejectedException`, el `map` **no se ejecuta**: la señal de error llega a
@@ -365,7 +401,80 @@ WebFlux, que la pasa al `GlobalExceptionHandler`. Como la excepción extiende `E
 (201), uno mal formado (400) y uno con un producto inexistente y otro sin stock (422 con los dos errores).
 `OrderRoutesTest` hace lo mismo contra el endpoint funcional `/api/orders`, con las mismas respuestas.
 
-## 2.5 Traducción imperativo → reactivo
+## 2.5 ¿Y si las líneas (`details`) fuesen un `Flux`? `List` vs. `Flux` en el modelo
+
+Pregunta habitual: si todo es reactivo, ¿por qué `OrderRequest.details` es una `List` y no un `Flux`? La
+respuesta depende de **dónde** se ponga el `Flux`.
+
+### ❌ Como campo del DTO: `OrderRequest(String customerId, Flux<DetailRequest> details)` — no funciona
+
+1. **Jackson no puede crear un `Flux` a partir de un array JSON.** WebFlux solo decodifica `Flux<T>` cuando es
+   el **cuerpo completo** (`@RequestBody Flux<T>`), nunca como campo dentro de un objeto. La petición fallaría al
+   leerse (400: *"Cannot construct instance of `reactor.core.publisher.Flux`"*).
+2. **Bean Validation no sabe validar un `Flux`.** `@NotEmpty` y `@Size(max = 20)` no tienen validador para ese
+   tipo (`UnexpectedTypeException` → 500), y `@AssertTrue isWithoutRepeatedProducts()` ni compila: un `Flux` no
+   tiene `stream()`.
+3. **Es un error de diseño.** Un `Flux` no es un **dato**: es un **proceso** que produce datos cuando alguien se
+   suscribe, y solo se puede consumir según sus reglas (normalmente una vez). Los DTO, los records del dominio y
+   las entidades contienen **datos** (`List`). El `Flux` aparece al **procesarlos**:
+
+   ```java
+   Flux.fromIterable(request.details())      // así empieza OrderService.create
+   ```
+
+   Por la misma razón `Order` tiene `List<OrderDetail>` y no `Flux<OrderDetail>`: con un `Flux` dentro no se
+   podría serializar la respuesta ni guardar el pedido.
+
+> 📌 **Regla:** `Flux` en las **firmas** (parámetros y retornos de métodos, `@RequestBody`, repositorios);
+> **nunca** como campo de un DTO, un record del dominio o una entidad.
+
+### ✅ Como cuerpo de la petición en *streaming* — funciona, pero cambia el diseño
+
+Las líneas podrían llegar como **NDJSON** (una línea del pedido por cada línea del cuerpo) y el cliente en la URL:
+
+```java
+@PostMapping(path = "/api/customers/{customerId}/orders", consumes = MediaType.APPLICATION_NDJSON_VALUE)
+public Mono<ResponseEntity<Order>> create(@PathVariable String customerId,
+                                          @Valid @RequestBody Flux<DetailRequest> details) { ... }
+```
+
+```bash
+curl -X POST http://localhost:8080/api/customers/c1/orders -H "Content-Type: application/x-ndjson" \
+     --data-binary $'{"productId":"1","quantity":2}\n{"productId":"3","quantity":1}\n'
+```
+
+Lo que **se mantiene**:
+
+- `OrderService.create` casi no cambia: en lugar de `Flux.fromIterable(request.details())` parte del `Flux`
+  recibido; `index()`, `flatMapSequential`, `reduce`... siguen igual.
+- Se gana ***backpressure*** real: con `flatMapSequential(..., 2)` se leen líneas del cliente al ritmo al que se
+  consulta el catálogo.
+
+Lo que **se pierde** (y hay que programar a mano en el *pipeline*):
+
+| Antes (Bean Validation sobre la `List`) | Con `Flux<DetailRequest>` en el cuerpo |
+|---|---|
+| `@Valid` en cada línea | Sigue funcionando, pero **línea a línea**: cada elemento se valida al llegar y un fallo es una señal `onError` |
+| `@NotEmpty` (al menos una línea) | Hay que detectarlo en el flujo: `switchIfEmpty(Mono.error(...))` antes de decidir |
+| `@Size(max = 20)` | Hay que comprobarlo con la posición de `index()` y emitir un error al pasar de 20 (o cortar con `take(21)`) |
+| `@AssertTrue` sin productos repetidos | Hay que detectarlo en el `reduce` (el acumulador conoce los `productId` vistos) |
+
+Y dos avisos importantes:
+
+- **El límite de 20 deja de ser una comodidad y pasa a ser una protección.** Con un cuerpo en *streaming* el
+  cliente puede enviar líneas sin fin y el `reduce` las iría acumulando en memoria.
+- **El cuerpo de una petición solo se puede leer una vez.** No se puede "validar primero y procesar después"
+  recorriéndolo dos veces: todo debe resolverse en **una sola pasada**. Precisamente por eso encaja la estrategia
+  de convertir cada línea en un valor (`DetailCheck`) y acumularlo con `reduce`.
+
+### ¿Merece la pena para un pedido?
+
+**No.** La regla de negocio obliga a esperar a la última línea antes de responder o reservar stock (la barrera
+de `reduce` sigue ahí), y un pedido tiene pocas líneas: el *streaming* no aporta nada y complica la validación.
+El `Flux` en el cuerpo tiene sentido cuando **cada elemento se puede procesar y responder por separado**, como la
+importación masiva `POST /api/products/bulk` del laboratorio B4 del día 1 (NDJSON de entrada y de salida).
+
+## 2.6 Traducción imperativo → reactivo
 
 | Imperativo (MVC) | Reactivo (WebFlux) |
 |---|---|
@@ -383,7 +492,7 @@ WebFlux, que la pasa al `GlobalExceptionHandler`. Como la excepción extiende `E
 | "cuando termine A, haz B" (instrucciones seguidas) | `a.then(b)` |
 | `@Transactional` (estado en `ThreadLocal`) | `@Transactional` reactivo o `TransactionalOperator` (estado en el `Context` de Reactor) |
 
-## 2.6 Dos estrategias: acumular errores vs. *fail-fast*
+## 2.7 Dos estrategias: acumular errores vs. *fail-fast*
 
 `OrderService` incluye una segunda versión para comparar: se detiene en el **primer** error.
 
@@ -442,7 +551,7 @@ void createFailFastQueriesTheCatalogSequentially() {
 > `createQueriesTheCatalogConcurrently` falla. Cambia por `flatMap`: los tiempos se mantienen, pero el orden de
 > los resultados deja de estar garantizado.
 
-## 2.7 Probarlo
+## 2.8 Probarlo
 
 Las mismas peticiones funcionan contra el controlador anotado (`/api/annotated/orders`) y contra el endpoint
 funcional (`/api/orders`), con idénticas respuestas:
@@ -480,7 +589,7 @@ curl -i -X POST http://localhost:8080/api/orders -H "Content-Type: application/j
            "withoutRepeatedProducts":"no puede haber productos repetidos en el pedido"}}
 ```
 
-## 2.8 Ventajas e inconvenientes
+## 2.9 Ventajas e inconvenientes
 
 | Aspecto | Imperativo (Spring MVC) | Reactivo (Spring WebFlux) |
 |---|---|---|
@@ -514,7 +623,7 @@ concurrencia (paralelo, *timeouts*, reintentos), *streaming* (SSE, NDJSON) y *ba
 - **MVC** (con hilos virtuales si se puede) cuando el acceso a datos es JDBC/JPA, la lógica es mayoritariamente
   secuencial o el equipo no domina Reactor.
 
-## 2.9 Errores frecuentes al escribir validaciones reactivas
+## 2.10 Errores frecuentes al escribir validaciones reactivas
 
 ```java
 // ❌ map con una función que devuelve Mono -> Mono<Mono<Product>> (la consulta nunca se ejecuta)
