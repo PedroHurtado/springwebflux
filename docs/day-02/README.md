@@ -40,7 +40,7 @@ El laboratorio está repartido: cada parte se hace al terminar su bloque de teor
 
 ```bash
 cd examples/day-02
-./mvnw test            # Windows: mvnw.cmd test  -> 35 tests en verde
+./mvnw test            # Windows: mvnw.cmd test  -> 43 tests en verde
 ./mvnw spring-boot:run # arranca en http://localhost:8080
 ```
 
@@ -72,7 +72,8 @@ catálogo (@RestController)      ──►     catálogo (@RestController) + bin
 | Multipart (`FilePart`) | `catalog/ProductController.java` (`uploadImage`), `catalog/ProductImageStore.java` |
 | Jackson (anotaciones, propiedades de Boot) | `catalog/ProductV2.java`, `application.properties` |
 | Dominio de pedidos y relación con `Product` | `orders/Order.java`, `orders/OrderDetail.java` |
-| **Validación de negocio reactiva** | `orders/OrderService.java` (`create` vs. `createFailFast`), `orders/DetailCheck.java` |
+| **Validación de negocio reactiva** | `orders/OrderService.java` (`create` vs. `createFailFast`), `orders/DetailCheck.java`, `orders/OrderValidation.java` (acumulador para `reduce`) |
+| Pedidos con controlador **anotado** (comparación con MVC) | `orders/OrderController.java` → `/api/annotated/orders`, `OrderControllerTest` |
 | Endpoints funcionales | `orders/OrderRouter.java`, `orders/OrderHandler.java` |
 | URIs | `ProductController.create` (`UriComponentsBuilder`), `OrderHandler.create` (`request.uriBuilder()`), `src/test/.../uri/UriBuildingTest.java` |
 | CORS | `config/WebConfig.java` (global), `@CrossOrigin` en `ProductController`, `static/cors.html`, `CorsTest` |

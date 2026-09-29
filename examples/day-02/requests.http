@@ -78,6 +78,47 @@ Content-Type: image/png
 GET {{host}}/api/products/1/image
 
 ########## 2. Pedidos: validación reactiva ##########
+# Las mismas peticiones funcionan en /api/annotated/orders (OrderController, anotado)
+# y en /api/orders (OrderRouter + OrderHandler, funcional): el OrderService es el mismo.
+
+### [Anotado] Pedido correcto -> 201
+POST {{host}}/api/annotated/orders
+Content-Type: application/json
+
+{
+  "customerId": "cliente-1",
+  "details": [
+    { "productId": "1", "quantity": 1 },
+    { "productId": "2", "quantity": 2 }
+  ]
+}
+
+### [Anotado] Reglas de negocio -> 422 con TODAS las líneas erróneas
+POST {{host}}/api/annotated/orders
+Content-Type: application/json
+
+{
+  "customerId": "cliente-1",
+  "details": [
+    { "productId": "99", "quantity": 1 },
+    { "productId": "4", "quantity": 50 },
+    { "productId": "2", "quantity": 1 }
+  ]
+}
+
+### [Anotado] Validación estructural (@Valid) -> 400
+POST {{host}}/api/annotated/orders
+Content-Type: application/json
+
+{
+  "customerId": "",
+  "details": [
+    { "productId": "1", "quantity": 0 },
+    { "productId": "1", "quantity": 2 }
+  ]
+}
+
+### [Funcional] Las mismas peticiones contra /api/orders
 
 ### Pedido correcto -> 201 (descuenta stock)
 POST {{host}}/api/orders

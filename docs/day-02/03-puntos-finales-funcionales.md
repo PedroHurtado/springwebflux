@@ -26,7 +26,9 @@ DispatcherHandler ──────┤                                         
 | Inspiración | Spring MVC | Programación funcional (rutas como datos, composición) |
 
 Ninguno es "más reactivo": los dos devuelven `Mono`/`Flux` y comparten codecs, `WebFilter`s y configuración.
-En el ejemplo conviven: el catálogo es anotado y los pedidos son funcionales.
+En el ejemplo conviven: el catálogo es anotado y los pedidos se exponen **de las dos formas** sobre el
+mismo `OrderService`: `/api/orders` (funcional: `OrderRouter` + `OrderHandler`) y `/api/annotated/orders`
+(anotado: `OrderController`). Compara las dos clases para ver cada fila de la tabla anterior.
 
 ## 3.2 `HandlerFunction`: `ServerRequest` → `Mono<ServerResponse>`
 

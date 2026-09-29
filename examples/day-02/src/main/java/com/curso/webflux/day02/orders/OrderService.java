@@ -1,7 +1,6 @@
 package com.curso.webflux.day02.orders;
 
 import java.util.List;
-import java.util.stream.Stream;
 
 import org.springframework.stereotype.Service;
 
@@ -55,14 +54,18 @@ public class OrderService {
      *
      * Nada de esto se ejecuta al llamar al método: solo se DESCRIBE el proceso.
      * Se ejecuta cuando el framework se suscribe para escribir la respuesta.
+     *
+     * El paso ③ es una BARRERA inevitable: las reglas de negocio (devolver todos los errores, no reservar
+     * stock si alguna línea falla) exigen conocer el resultado de todas las líneas antes de decidir.
+     * No se materializa ninguna lista intermedia: cada resultado se acumula según llega (reduce).
      */
     public Mono<Order> create(OrderRequest request) {
         return Flux.fromIterable(request.details())
                 .index()                                                      // ① (posición, línea)
                 .flatMapSequential(indexed ->                                 // ② consultas EN PARALELO,
                         checkDetail(indexed.getT1().intValue(), indexed.getT2())) //    resultados EN ORDEN
-                .collectList()                                                // ③ List<DetailCheck>
-                .flatMap(OrderService::rejectIfAnyInvalid)                    // ④ error 422 o List<OrderDetail>
+                .reduce(OrderValidation.empty(), OrderValidation::add)        // ③ acumular válidas y errores
+                .flatMap(OrderValidation::toDetailsOrReject)                  // ④ error 422 o List<OrderDetail>
                 .map(details -> Order.create(request.customerId(), details))  // ⑤ construir el pedido
                 .flatMap(this::reserveStockAndSave);                          // ⑥ efectos: stock + guardar
     }
@@ -80,20 +83,6 @@ public class OrderService {
                         : invalid(line, request, "stock insuficiente: solicitadas " + request.quantity()
                                 + ", disponibles " + product.stock()))
                 .defaultIfEmpty(invalid(line, request, "el producto no existe"));
-    }
-
-    /** Función pura (sin E/S): decide si el pedido sigue adelante. */
-    private static Mono<List<OrderDetail>> rejectIfAnyInvalid(List<DetailCheck> checks) {
-        List<DetailError> errors = checks.stream()
-                .flatMap(check -> check instanceof DetailCheck.Invalid invalid
-                        ? Stream.of(invalid.error()) : Stream.<DetailError>empty())
-                .toList();
-        if (!errors.isEmpty()) {
-            return Mono.error(new OrderRejectedException(errors));   // señal onError, no "throw"
-        }
-        return Mono.just(checks.stream()
-                .map(check -> ((DetailCheck.Valid) check).detail())
-                .toList());
     }
 
     /**
@@ -116,7 +105,7 @@ public class OrderService {
                             .switchIfEmpty(Mono.error(() -> rejected(line, detail, "stock insuficiente")))
                             .map(product -> OrderDetail.of(product, detail.quantity()));
                 })
-                .collectList()
+                .collectList()   // aquí sí: el Order ES una lista de líneas (acotada a 20 por @Size)
                 .map(details -> Order.create(request.customerId(), details))
                 .flatMap(this::reserveStockAndSave);
     }

@@ -5,7 +5,20 @@
 > [WebFlux — Validation](https://docs.spring.io/spring-framework/reference/web/webflux/controller/ann-validation.html)
 >
 > Código: `orders/Order.java`, `orders/OrderDetail.java`, `orders/OrderRequest.java`, `orders/DetailCheck.java`,
-> `orders/OrderService.java` · Tests: `orders/OrderServiceTest.java`, `orders/OrderRoutesTest.java`
+> `orders/OrderValidation.java`, `orders/OrderService.java`, `orders/OrderController.java` (anotado), `orders/OrderHandler.java` (funcional)
+> Tests: `orders/OrderServiceTest.java`, `orders/OrderValidationTest.java`, `orders/OrderControllerTest.java`, `orders/OrderRoutesTest.java`
+
+> 🗺️ **Dónde está cada cosa en el ejemplo**
+>
+> | Pieza | Clase | Qué hace |
+> |---|---|---|
+> | Entrada HTTP (anotada) | `OrderController` → `POST /api/annotated/orders` | `@Valid @RequestBody` (400) y llama a `service.create` |
+> | Entrada HTTP (funcional) | `OrderRouter` + `OrderHandler` → `POST /api/orders` | Validación manual (400) y llama a `service.create` |
+> | **Validación de negocio reactiva** | `OrderService.create` | ¿Existe cada producto? ¿Hay stock? (422) |
+> | Errores → `ProblemDetail` | `GlobalExceptionHandler` (anotado) / `OrderRouter.onError` (funcional) | Mismo JSON en los dos casos |
+>
+> Las dos entradas HTTP comparten **el mismo servicio**: la validación reactiva no depende del modelo de
+> programación del controlador.
 
 El catálogo del día 1 solo tenía una entidad. Hoy añadimos **pedidos**: un pedido tiene líneas y cada línea
 apunta a un producto. Al crear un pedido hay que **validar cada producto contra el catálogo**, y eso es E/S:
@@ -170,8 +183,8 @@ public Mono<Order> create(OrderRequest request) {
             .index()                                                      // ① (posición, línea)
             .flatMapSequential(indexed ->                                 // ② consultas EN PARALELO,
                     checkDetail(indexed.getT1().intValue(), indexed.getT2())) //    resultados EN ORDEN
-            .collectList()                                                // ③ List<DetailCheck>
-            .flatMap(OrderService::rejectIfAnyInvalid)                    // ④ error 422 o List<OrderDetail>
+            .reduce(OrderValidation.empty(), OrderValidation::add)        // ③ acumular válidas y errores
+            .flatMap(OrderValidation::toDetailsOrReject)                  // ④ error 422 o List<OrderDetail>
             .map(details -> Order.create(request.customerId(), details))  // ⑤ construir el pedido
             .flatMap(this::reserveStockAndSave);                          // ⑥ efectos: stock + guardar
 }
@@ -185,8 +198,8 @@ public Mono<Order> create(OrderRequest request) {
 flowchart LR
     A["Flux&lt;DetailRequest&gt;"] -->|"① index()"| B["Flux&lt;Tuple2&lt;Long, DetailRequest&gt;&gt;"]
     B -->|"② flatMapSequential(checkDetail)"| C["Flux&lt;DetailCheck&gt;"]
-    C -->|"③ collectList()"| D["Mono&lt;List&lt;DetailCheck&gt;&gt;"]
-    D -->|"④ flatMap(rejectIfAnyInvalid)"| E["Mono&lt;List&lt;OrderDetail&gt;&gt;"]
+    C -->|"③ reduce(empty, add)"| D["Mono&lt;OrderValidation&gt;"]
+    D -->|"④ flatMap(toDetailsOrReject)"| E["Mono&lt;List&lt;OrderDetail&gt;&gt;"]
     D -.->|"alguna Invalid"| X["onError(OrderRejectedException) → 422"]
     E -->|"⑤ map(Order::create)"| F["Mono&lt;Order&gt;"]
     F -->|"⑥ flatMap(reserveStockAndSave)"| G["Mono&lt;Order&gt; guardado → 201"]
@@ -196,8 +209,8 @@ flowchart LR
 |---|---|---|---|
 | ① | `index()` | `DetailRequest` → `Tuple2<Long, DetailRequest>` | Conservar la posición de cada línea para informar del error |
 | ② | `flatMapSequential` | cada línea → `Mono<DetailCheck>` | La función devuelve un `Publisher` (hay E/S) → familia `flatMap`. *Sequential*: se suscribe a todas **a la vez** pero entrega los resultados **en el orden original** |
-| ③ | `collectList()` | `Flux<DetailCheck>` → `Mono<List<DetailCheck>>` | Necesitamos ver **todas** las líneas antes de decidir |
-| ④ | `flatMap` | `List<DetailCheck>` → `Mono<List<OrderDetail>>` o `Mono.error` | La decisión puede ser un **error**: se devuelve un `Mono` |
+| ③ | `reduce(semilla, acumulador)` | `Flux<DetailCheck>` → `Mono<OrderValidation>` | Cada resultado se **acumula según llega** (válidas por un lado, errores por otro) sin guardar una lista intermedia. Emite un único valor cuando termina la última línea |
+| ④ | `flatMap` | `OrderValidation` → `Mono<List<OrderDetail>>` o `Mono.error` | La decisión puede ser un **error**: se devuelve un `Mono` |
 | ⑤ | `map` | `List<OrderDetail>` → `Order` | Transformación síncrona, pura, sin E/S |
 | ⑥ | `flatMap` | `Order` → `Mono<Order>` | Guardar es E/S asíncrona |
 
@@ -231,23 +244,63 @@ paso ③. Es la idea de los tipos *Either* / *Validation* de la programación fu
 > (El argumento de `defaultIfEmpty` se construye siempre; si fuera caro, se usaría
 > `switchIfEmpty(Mono.fromSupplier(...))`, que es perezoso.)
 
-### ④ Decidir: una función pura
+### ③ y ④ Acumular y decidir: `reduce` con un acumulador inmutable
 
 ```java
-private static Mono<List<OrderDetail>> rejectIfAnyInvalid(List<DetailCheck> checks) {
-    List<DetailError> errors = checks.stream()
-            .flatMap(check -> check instanceof DetailCheck.Invalid invalid
-                    ? Stream.of(invalid.error()) : Stream.<DetailError>empty())
-            .toList();
-    if (!errors.isEmpty()) {
-        return Mono.error(new OrderRejectedException(errors));   // señal onError, no "throw"
+// orders/OrderValidation.java
+public record OrderValidation(List<OrderDetail> details, List<DetailError> errors) {
+
+    public static OrderValidation empty() { return EMPTY; }            // semilla: sin líneas ni errores
+
+    /** Devuelve un acumulador NUEVO con la línea añadida (no modifica el actual). */
+    public OrderValidation add(DetailCheck check) {
+        if (check instanceof DetailCheck.Valid valid) {
+            return new OrderValidation(append(details, valid.detail()), errors);
+        }
+        DetailCheck.Invalid invalid = (DetailCheck.Invalid) check;     // interfaz sellada: no hay más casos
+        return new OrderValidation(details, append(errors, invalid.error()));
     }
-    return Mono.just(checks.stream().map(check -> ((DetailCheck.Valid) check).detail()).toList());
+
+    /** La decisión final: el pedido sigue o se rechaza con TODOS los errores. */
+    public Mono<List<OrderDetail>> toDetailsOrReject() {
+        return isValid() ? Mono.just(details) : Mono.error(new OrderRejectedException(errors));
+    }
 }
 ```
 
-No hay E/S ni estado compartido: recibe una lista y devuelve un resultado. Se puede probar sin Spring y sin
-Reactor. `OrderRejectedException` extiende `ErrorResponseException`, así que ya lleva su `ProblemDetail` (422).
+```text
+flatMapSequential emite:   Invalid(0)        Valid(1)                 Invalid(2)
+reduce acumula:        {[], [e0]}  →  {[d1], [e0]}  →  {[d1], [e0, e2]}   → al completar: Mono<OrderValidation>
+toDetailsOrReject:                                                         → Mono.error(422 con e0 y e2)
+```
+
+- `reduce(semilla, acumulador)` es el `fold` de la programación funcional: combina cada elemento con el
+  resultado acumulado y emite **un único valor** cuando el `Flux` completa.
+- El acumulador es **inmutable**: `add` devuelve uno nuevo. Por eso la semilla `empty()` se puede compartir
+  entre suscripciones sin riesgo. Con una semilla **mutable** (un `ArrayList`) dos peticiones simultáneas
+  escribirían en la misma lista; en ese caso habría que usar `reduceWith(() -> nuevaSemilla, ...)`.
+- `OrderValidation` no tiene E/S ni estado compartido: se prueba sin Spring y sin repositorios
+  (📄 `orders/OrderValidationTest.java`).
+- `OrderRejectedException` extiende `ErrorResponseException`, así que ya lleva su `ProblemDetail` (422).
+
+### ¿Por qué no `collectList()`?
+
+Una primera versión de este ejemplo usaba `.collectList()` y después recorría la lista dos veces (una para los
+errores, otra para las líneas válidas, con un *cast*). Funciona, pero materializa una `List<DetailCheck>` que
+solo sirve para volver a recorrerla. Con `reduce`, cada resultado se clasifica **en el momento en que llega**.
+
+Lo que **no** desaparece es la **barrera**: el paso ④ no puede ejecutarse hasta que termina la última línea.
+No es una limitación de Reactor sino de las reglas de negocio (devolver todos los errores y no reservar stock si
+alguna línea falla); la versión imperativa hace lo mismo con dos `ArrayList` y decide al final del bucle.
+
+| ¿Cuándo es aceptable juntar un `Flux` (`collectList`, `reduce`, `collectMap`...)? | ¿Cuándo no? |
+|---|---|
+| El `Flux` está **acotado** y es pequeño (aquí, máximo 20 líneas por `@Size(max = 20)`) | Flujos sin límite o enormes: SSE, NDJSON, consultas de miles de filas |
+| La decisión necesita **todos** los elementos (validar un pedido, calcular un total) | Cuando cada elemento se puede procesar y enviar por separado |
+| El resultado es **un valor** (`Mono`) | Cuando se quiere *backpressure* y que el cliente reciba el primer elemento cuanto antes |
+
+(`createFailFast` sí usa `collectList()` al final, sobre `OrderDetail` ya validados: el `Order` **es** una
+lista de líneas y la necesita entera para construirse.)
 
 ### ⑥ Efectos secundarios, solo al final
 
@@ -268,9 +321,49 @@ Y el hilo durante todo esto:
 ```text
 reactor-http-nio-3: recibe la petición, lanza 5 consultas y QUEDA LIBRE (atiende otras peticiones)
                     ... 50 ms después llegan las 5 respuestas (en paralelo) ...
-parallel-2:         collectList → decidir → reservar → guardar → escribir la respuesta
+parallel-2:         reduce → decidir → reservar → guardar → escribir la respuesta
                                                          → 50 ms en total y ningún hilo bloqueado
 ```
+
+### El controlador: Spring MVC vs. WebFlux
+
+La validación vive en el servicio, así que el controlador anotado de WebFlux es **casi idéntico** al de MVC
+(`orders/OrderController.java`):
+
+```java
+// Spring MVC (bloqueante)
+@PostMapping("/api/orders")
+public ResponseEntity<Order> create(@Valid @RequestBody OrderRequest request, UriComponentsBuilder uriBuilder) {
+    Order order = service.create(request);                       // el hilo espera aquí
+    return ResponseEntity.created(uriBuilder.path("/api/orders/{id}").buildAndExpand(order.id()).toUri())
+            .body(order);
+}
+
+// Spring WebFlux (anotado) — orders/OrderController.java
+@PostMapping                                                     // @RequestMapping("/api/annotated/orders")
+public Mono<ResponseEntity<Order>> create(@Valid @RequestBody OrderRequest request,
+                                          UriComponentsBuilder uriBuilder) {
+    return service.create(request)                               // Mono<Order>: nadie espera
+            .map(order -> ResponseEntity
+                    .created(uriBuilder.path("/api/annotated/orders/{id}").buildAndExpand(order.id()).toUri())
+                    .body(order));                               // solo si el pedido es válido
+}
+```
+
+| | MVC | WebFlux anotado | WebFlux funcional (`OrderHandler`) |
+|---|---|---|---|
+| Validación estructural (400) | `@Valid` | `@Valid` | `validator.validate(...)` a mano |
+| Validación de negocio (422) | `throw` en el servicio | `Mono.error` en el servicio | `Mono.error` en el servicio (el mismo) |
+| Error → `ProblemDetail` | `@RestControllerAdvice` | `@RestControllerAdvice` (`GlobalExceptionHandler`) | `onError` en `OrderRouter` |
+| Respuesta 201 | `return ResponseEntity...` | `.map(order -> ResponseEntity...)` | `.flatMap(order -> ServerResponse.created(...)...)` |
+
+Si `service.create` emite `OrderRejectedException`, el `map` **no se ejecuta**: la señal de error llega a
+WebFlux, que la pasa al `GlobalExceptionHandler`. Como la excepción extiende `ErrorResponseException`, sale como
+`ProblemDetail` 422 sin escribir ningún `@ExceptionHandler`.
+
+📄 `orders/OrderControllerTest.java` es la **evidencia**: lanza contra `/api/annotated/orders` un pedido válido
+(201), uno mal formado (400) y uno con un producto inexistente y otro sin stock (422 con los dos errores).
+`OrderRoutesTest` hace lo mismo contra el endpoint funcional `/api/orders`, con las mismas respuestas.
 
 ## 2.5 Traducción imperativo → reactivo
 
@@ -282,7 +375,8 @@ parallel-2:         collectList → decidir → reservar → guardar → escribi
 | llamadas una detrás de otra | `concatMap` |
 | llamadas en paralelo (`CompletableFuture` + `join`) | `flatMap` / `flatMapSequential` |
 | `Optional.isEmpty()` / `null` | `Mono` vacío → `switchIfEmpty` / `defaultIfEmpty` |
-| `lista.add(...)` + `return lista` | `collectList()` |
+| `lista.add(...)` + `return lista` | `collectList()` (o `reduce` si se acumula en otra estructura) |
+| acumular en variables durante el bucle y decidir al final | `reduce(semilla, acumulador)` con un acumulador inmutable |
 | `throw new XxxException()` | `Mono.error(new XxxException())` (o `Mono.error(() -> ...)`, perezoso) |
 | `try { ... } catch (X e) { ... }` | `onErrorResume(X.class, e -> ...)` / `onErrorMap` |
 | `return valor` | `map(...)` |
@@ -350,13 +444,16 @@ void createFailFastQueriesTheCatalogSequentially() {
 
 ## 2.7 Probarlo
 
+Las mismas peticiones funcionan contra el controlador anotado (`/api/annotated/orders`) y contra el endpoint
+funcional (`/api/orders`), con idénticas respuestas:
+
 ```bash
 # 201: descuenta stock y devuelve Location absoluta
-curl -i -X POST http://localhost:8080/api/orders -H "Content-Type: application/json" \
+curl -i -X POST http://localhost:8080/api/annotated/orders -H "Content-Type: application/json" \
   -d '{"customerId":"c1","details":[{"productId":"1","quantity":2},{"productId":"3","quantity":1}]}'
 
 # 422: TODOS los errores de negocio a la vez
-curl -i -X POST http://localhost:8080/api/orders -H "Content-Type: application/json" \
+curl -i -X POST http://localhost:8080/api/annotated/orders -H "Content-Type: application/json" \
   -d '{"customerId":"c1","details":[{"productId":"99","quantity":2},{"productId":"4","quantity":50},{"productId":"2","quantity":1}]}'
 ```
 
@@ -364,7 +461,7 @@ curl -i -X POST http://localhost:8080/api/orders -H "Content-Type: application/j
 HTTP/1.1 422 Unprocessable Entity
 Content-Type: application/problem+json
 
-{"detail":"El pedido tiene 2 línea(s) no válida(s)","instance":"/api/orders","status":422,
+{"detail":"El pedido tiene 2 línea(s) no válida(s)","instance":"/api/annotated/orders","status":422,
  "title":"Pedido rechazado","type":"https://curso-webflux.example/problems/order-rejected",
  "errors":[{"line":0,"productId":"99","message":"el producto no existe"},
            {"line":1,"productId":"4","message":"stock insuficiente: solicitadas 50, disponibles 5"}]}
@@ -390,7 +487,7 @@ curl -i -X POST http://localhost:8080/api/orders -H "Content-Type: application/j
 | **Lectura** | ✅ Lineal, de arriba abajo; lo entiende cualquiera | ⚠️ Declarativa; hay que conocer los operadores y saber elegir entre `map` / `flatMap` / `concatMap`... |
 | **Hilos** | ❌ Un hilo bloqueado por petición mientras espera la E/S (250 ms en el ejemplo) | ✅ Ningún hilo espera; el *event loop* atiende otras peticiones |
 | **Paralelizar la E/S** | ⚠️ Posible, pero con código extra (`CompletableFuture`, *executors*, `join`) | ✅ Cambiar un operador (`concatMap` ↔ `flatMapSequential`) |
-| **Acumular errores** | ✅ Una lista mutable y `if/else` | ✅ Valores (`DetailCheck`) + `collectList`, sin estado mutable compartido |
+| **Acumular errores** | ✅ Una lista mutable y `if/else` | ✅ Valores (`DetailCheck`) + `reduce` sobre un acumulador inmutable, sin estado mutable compartido |
 | **Control de flujo del error** | `throw` corta el método; `try/catch` | La señal `onError` salta los pasos siguientes; `onErrorResume`/`onErrorMap` |
 | **"No encontrado"** | `Optional` / `null` | `Mono` vacío (`switchIfEmpty`, `defaultIfEmpty`) |
 | **Transacciones** | ✅ `@Transactional` (JPA/JDBC), muy maduro | ⚠️ Posibles (`@Transactional` reactivo, `TransactionalOperator`), pero requieren drivers reactivos (R2DBC) |
@@ -440,7 +537,12 @@ Product p = products.findById(id).block();   // IllegalStateException en un hilo
 // ✅ Seguir dentro del pipeline con flatMap / map
 
 // ❌ Validar con Mono.error en cada línea cuando se quieren TODOS los errores (el primero cancela el resto)
-// ✅ Convertir cada resultado en un valor (DetailCheck) y decidir después de collectList()
+// ✅ Convertir cada resultado en un valor (DetailCheck), acumularlo con reduce y decidir al final
+
+// ❌ reduce con una semilla MUTABLE compartida: todas las suscripciones escriben en la misma lista
+.reduce(new ArrayList<DetailError>(), (acc, check) -> { acc.add(...); return acc; })
+// ✅ Acumulador inmutable (OrderValidation) o, si es mutable, una semilla nueva por suscripción
+.reduceWith(ArrayList::new, (acc, check) -> { acc.add(...); return acc; })
 ```
 
 > ⚠️ **Concurrencia (en los dos modelos):** entre validar el stock y descontarlo, otra petición podría
@@ -452,7 +554,7 @@ Product p = products.findById(id).block();   // IllegalStateException en un hilo
 
 - Reactor — Which operator do I need?: <https://projectreactor.io/docs/core/release/reference/apdx-operatorChoice.html>
 - Reactor — Debugging Reactor: <https://projectreactor.io/docs/core/release/reference/debugging.html>
-- Reactor — `Flux` (Javadoc, diagramas de `flatMapSequential`, `concatMap`, `collectList`...): <https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Flux.html>
+- Reactor — `Flux` (Javadoc, diagramas de `flatMapSequential`, `concatMap`, `reduce`, `collectList`...): <https://projectreactor.io/docs/core/release/api/reactor/core/publisher/Flux.html>
 - Spring Framework — Programmatic Transaction Management (`TransactionalOperator`): <https://docs.spring.io/spring-framework/reference/data-access/transaction/programmatic.html>
 - Spring Boot — Virtual threads (`spring.threads.virtual.enabled`): <https://docs.spring.io/spring-boot/reference/features/spring-application.html#features.spring-application.virtual-threads>
 - JEP 444 — Virtual Threads: <https://openjdk.org/jeps/444>

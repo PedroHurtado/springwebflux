@@ -9,7 +9,7 @@
 
 ```bash
 cd examples/day-02
-./mvnw test              # Windows: mvnw.cmd test   → 35 tests OK
+./mvnw test              # Windows: mvnw.cmd test   → 43 tests OK
 ./mvnw spring-boot:run
 ```
 

@@ -4,9 +4,10 @@ Proyecto de ejemplo del [día 2](../../docs/day-02/README.md). Parte del catálo
 
 - **Controladores anotados (II)** sobre el catálogo: *data binding*, conversión de tipos, validación,
   errores `ProblemDetail` (RFC 9457), multipart, Jackson y *API versioning*.
-- **Un dominio nuevo: pedidos** (`Order` → `OrderDetail` → `Product`) expuesto con **endpoints
-  funcionales**, con la validación de negocio escrita de forma **reactiva** para compararla con la
-  versión imperativa de Spring MVC.
+- **Un dominio nuevo: pedidos** (`Order` → `OrderDetail` → `Product`) expuesto **de dos formas** sobre el
+  mismo servicio: un **controlador anotado** (`/api/annotated/orders`) y **endpoints funcionales**
+  (`/api/orders`). La validación de negocio está escrita de forma **reactiva** en `OrderService` para
+  compararla con la versión imperativa de Spring MVC.
 - **URIs**, **CORS** y **configuración de WebFlux** (`WebFluxConfigurer`).
 
 **Stack:** Java 17 · Spring Boot 4.1.1 · Spring Framework 7.0.9 · Reactor 3.8.7 · Reactor Netty · Jackson 3
@@ -14,7 +15,7 @@ Proyecto de ejemplo del [día 2](../../docs/day-02/README.md). Parte del catálo
 ## Ejecutar
 
 ```bash
-./mvnw test                 # Windows: mvnw.cmd test  (35 tests)
+./mvnw test                 # Windows: mvnw.cmd test  (43 tests)
 ./mvnw spring-boot:run      # http://localhost:8080
 ```
 
@@ -63,9 +64,10 @@ classDiagram
   [02 — Pedidos: validación reactiva vs. imperativa](../../docs/day-02/02-pedidos-validacion-reactiva.md).
 
 ```text
-POST /api/orders
+POST /api/annotated/orders (OrderController, @Valid)   ─┐
+POST /api/orders           (OrderHandler, manual)      ─┤
    │
-   ├─ OrderHandler      400  JSON mal formado · Bean Validation (validación ESTRUCTURAL, sin E/S)
+   ├─ controlador/handler  400  JSON mal formado · Bean Validation (validación ESTRUCTURAL, sin E/S)
    │
    └─ OrderService      422  producto inexistente · stock insuficiente (validación de NEGOCIO, con E/S)
          │                   → se devuelven TODAS las líneas erróneas a la vez
@@ -92,11 +94,13 @@ src/main/java/com/curso/webflux/day02/
 │   ├── Order.java / OrderDetail.java  agregado Pedido -> Líneas (-> Product por id)
 │   ├── OrderRequest.java              DTO con validación estructural (@NotEmpty, @AssertTrue...)
 │   ├── DetailCheck.java               resultado de validar una línea: Valid | Invalid (interfaz sellada)
+│   ├── OrderValidation.java           acumulador inmutable para reduce: líneas válidas + errores
 │   ├── OrderService.java              create() acumula errores · createFailFast() para al primero
 │   ├── OrderRepository.java           en memoria
 │   ├── OrderRejectedException.java    422 (ErrorResponseException con ProblemDetail)
 │   ├── InvalidOrderException.java     400 (validación manual)
 │   ├── OrderNotFoundException.java    404
+│   ├── OrderController.java           @RestController (/api/annotated/orders): comparación con MVC
 │   ├── OrderHandler.java              HandlerFunctions: ServerRequest -> Mono<ServerResponse>
 │   └── OrderRouter.java               RouterFunction: rutas anidadas, filtro, onError
 ├── error/
@@ -113,6 +117,8 @@ src/main/resources/
 src/test/java/com/curso/webflux/day02/
 ├── catalog/ProductControllerTest      ProblemDetail, binding, validación, versiones, multipart
 ├── orders/OrderServiceTest            StepVerifier: acumular vs fail-fast, paralelo vs secuencial (tiempo virtual)
+├── orders/OrderValidationTest         el acumulador de reduce, sin Spring ni E/S
+├── orders/OrderControllerTest         WebTestClient: 201, 400, 404, 422 en el controlador anotado
 ├── orders/OrderRoutesTest             WebTestClient: 201, 400, 404, 422 en endpoints funcionales
 ├── config/CorsTest                    preflight, orígenes permitidos y rechazados
 └── uri/UriBuildingTest                UriComponentsBuilder, codificación, UriBuilderFactory
@@ -132,6 +138,9 @@ src/test/java/com/curso/webflux/day02/
 | GET | `/api/products/prices` | anotado | SSE: cambios de precio cada segundo |
 | POST | `/api/products/{id}/image` | anotado | Multipart (`file`); 415 si no es imagen, 413 si > 256 KB |
 | GET | `/api/products/{id}/image` | anotado | Descarga la imagen |
+| GET | `/api/annotated/orders[?customerId=]` | anotado | Lista de pedidos |
+| GET | `/api/annotated/orders/{id}` | anotado | Un pedido o 404 `ProblemDetail` |
+| POST | `/api/annotated/orders` | anotado | Crea (201 / 400 / 422), mismo `OrderService` |
 | GET | `/api/orders[?customerId=]` | funcional | Lista de pedidos |
 | GET | `/api/orders/{id}` | funcional | Un pedido o 404 `ProblemDetail` |
 | POST | `/api/orders` | funcional | Crea (201 / 400 / 422) |
