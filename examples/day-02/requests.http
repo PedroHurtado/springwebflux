@@ -1,0 +1,150 @@
+### Día 2 — Catálogo (anotado) y pedidos (funcional)
+@host = http://localhost:8080
+
+########## 1. Controladores anotados (II) ##########
+
+### Data binding a un record + conversor propio (price-desc -> ProductSort.PRICE_DESC)
+GET {{host}}/api/products/search?category=perifericos&maxPrice=100&sort=price-desc
+
+### Error de conversión y de validación -> 400 ProblemDetail con "errors"
+GET {{host}}/api/products/search?sort=raro
+
+###
+GET {{host}}/api/products/search?maxPrice=-5
+
+### Validación de un @RequestParam (@Min/@Max) -> 400
+GET {{host}}/api/products/top?limit=50
+
+### ProblemDetail 404 (application/problem+json)
+GET {{host}}/api/products/no-existe
+
+### Crear -> 201 + Location ABSOLUTA (UriComponentsBuilder)
+POST {{host}}/api/products
+Content-Type: application/json
+
+{
+  "name": "Webcam HD",
+  "category": "perifericos",
+  "price": 39.90,
+  "stock": 12
+}
+
+### Crear inválido -> 400 con un error por campo
+POST {{host}}/api/products
+Content-Type: application/json
+
+{
+  "name": "",
+  "category": "perifericos",
+  "price": -1,
+  "stock": 1
+}
+
+### Propiedad desconocida -> 400 (spring.jackson.deserialization.fail-on-unknown-properties=true)
+POST {{host}}/api/products
+Content-Type: application/json
+
+{
+  "name": "Webcam HD",
+  "category": "perifericos",
+  "price": 39.90,
+  "stock": 12,
+  "color": "rojo"
+}
+
+### API versioning: sin cabecera -> versión 1.0
+GET {{host}}/api/products/4
+
+### API versioning: versión 2.0 (precio con IVA, aviso de stock bajo)
+GET {{host}}/api/products/4
+API-Version: 2.0
+
+### API versioning: versión no soportada -> 400
+GET {{host}}/api/products/4
+API-Version: 3.0
+
+### Multipart: subir imagen (el fichero debe existir junto a este requests.http)
+POST {{host}}/api/products/1/image
+Content-Type: multipart/form-data; boundary=CursoBoundary
+
+--CursoBoundary
+Content-Disposition: form-data; name="file"; filename="teclado.png"
+Content-Type: image/png
+
+< ./src/test/resources/teclado.png
+--CursoBoundary--
+
+### Descargar la imagen
+GET {{host}}/api/products/1/image
+
+########## 2. Pedidos: validación reactiva ##########
+
+### Pedido correcto -> 201 (descuenta stock)
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{
+  "customerId": "cliente-1",
+  "details": [
+    { "productId": "1", "quantity": 2 },
+    { "productId": "3", "quantity": 1 }
+  ]
+}
+
+### Reglas de negocio -> 422 con TODAS las líneas erróneas
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{
+  "customerId": "cliente-1",
+  "details": [
+    { "productId": "99", "quantity": 1 },
+    { "productId": "4", "quantity": 50 },
+    { "productId": "2", "quantity": 1 }
+  ]
+}
+
+### Validación estructural (Bean Validation manual) -> 400
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{
+  "customerId": "",
+  "details": [
+    { "productId": "1", "quantity": 0 },
+    { "productId": "1", "quantity": 2 }
+  ]
+}
+
+### Listar pedidos (JSON o NDJSON según Accept) y filtrar por cliente
+GET {{host}}/api/orders?customerId=cliente-1
+Accept: application/x-ndjson
+
+### Pedido inexistente -> 404 ProblemDetail
+GET {{host}}/api/orders/no-existe
+
+### Content-Type no admitido: en el modelo funcional ninguna ruta coincide -> 404
+POST {{host}}/api/orders
+Content-Type: text/plain
+
+hola
+
+########## 3. CORS ##########
+
+### Preflight permitido (origen de la configuración global)
+OPTIONS {{host}}/api/orders
+Origin: http://127.0.0.1:8080
+Access-Control-Request-Method: POST
+Access-Control-Request-Headers: content-type
+
+### Origen no permitido -> 403
+OPTIONS {{host}}/api/orders
+Origin: http://evil.example
+Access-Control-Request-Method: POST
+
+### @CrossOrigin en ProductController (servidor de desarrollo de una SPA)
+GET {{host}}/api/products/count
+Origin: http://localhost:5173
+
+########## Rutas registradas (anotadas + funcionales) ##########
+GET {{host}}/actuator/mappings

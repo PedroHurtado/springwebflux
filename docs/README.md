@@ -43,6 +43,7 @@ docs/
   day-04/
 examples/
   day-01/              <- proyecto Spring Boot del día 1 (catálogo reactivo)
+  day-02/              <- día 2: catálogo + pedidos (Order -> OrderDetail -> Product)
   day-0N/              <- cada día evoluciona el mismo dominio (catálogo de productos)
 ```
 
@@ -73,13 +74,19 @@ reactivas*, que se adelanta al día 1 porque Reactor (`Mono`/`Flux`) es impresci
 
 ### Día 2 — Martes 29/09 · Modelos de programación del servidor
 
-| Bloque | Tema del temario |
-|---|---|
-| Mapeo avanzado, argumentos y retornos, conversión de tipos, *data binding*, validación, `@ExceptionHandler`, `@ControllerAdvice`, *Error Responses* (`ProblemDetail`, RFC 9457), multipart, Jackson | **Controladores anotados** (II) |
-| `RouterFunction`, `HandlerFunction`, `ServerRequest`/`ServerResponse`, predicados, rutas anidadas, filtros, validación manual | **Puntos finales funcionales** |
-| `UriComponentsBuilder`, `UriBuilderFactory`, codificación de URIs, enlaces a controladores | **URI's** |
-| CORS por anotación (`@CrossOrigin`), configuración global y `CorsWebFilter` | **CORS** |
-| `@EnableWebFlux`, `WebFluxConfigurer`: conversión, validación, codecs (límites de memoria), *view resolvers*, recursos estáticos, *path matching*, *API versioning* (novedad Spring 7) | **Configuración de WebFlux** |
+| Horario | Bloque | Tema del temario |
+|---|---|---|
+| 09:30 – 09:45 | Repaso del día 1, importar `examples/day-02` | — |
+| 09:45 – 10:45 | Mapeo avanzado, argumentos, conversión de tipos, *data binding*, validación, `@ExceptionHandler`, `@ControllerAdvice`, *Error Responses* (`ProblemDetail`, RFC 9457), multipart, Jackson | **Controladores anotados** (II) |
+| 10:45 – 11:40 | Caso práctico: dominio de pedidos (`Order` → `OrderDetail` → `Product`) y validación de negocio reactiva frente a la imperativa de Spring MVC | **Controladores anotados** (II) · **Bibliotecas reactivas** |
+| 11:40 – 12:00 | *Descanso* | |
+| 12:00 – 12:50 | `RouterFunction`, `HandlerFunction`, `ServerRequest`/`ServerResponse`, predicados, rutas anidadas, filtros, errores, validación manual | **Puntos finales funcionales** |
+| 12:50 – 13:10 | `UriComponentsBuilder`, codificación de URIs, `UriBuilderFactory`, URIs relativas a la petición, cabeceras `Forwarded` | **URI's** |
+| 13:10 – 13:35 | Política del mismo origen, *preflight*, `@CrossOrigin`, configuración global y `CorsWebFilter` | **CORS** |
+| 13:35 – 14:05 | `WebFluxConfigurer` (conversión, codecs, recursos estáticos, *path matching*), propiedades de Boot, *API versioning* (novedad Spring 7) | **Configuración de WebFlux** |
+| 14:05 – 14:30 | Cierre del laboratorio, repaso y autoevaluación | — |
+
+➡️ [Teoría y laboratorio del día 2](day-02/README.md) · [Ejemplo del día 2](../examples/day-02/README.md)
 
 ### Día 3 — Miércoles 30/09 · Cliente reactivo, seguridad y rendimiento HTTP
 
