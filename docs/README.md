@@ -44,6 +44,7 @@ docs/
 examples/
   day-01/              <- proyecto Spring Boot del día 1 (catálogo reactivo)
   day-02/              <- día 2: catálogo + pedidos (Order -> OrderDetail -> Product)
+  day-03/              <- día 3: + BFF con WebClient, caché HTTP, HTTP/2
   day-0N/              <- cada día evoluciona el mismo dominio (catálogo de productos)
 ```
 
@@ -90,12 +91,18 @@ reactivas*, que se adelanta al día 1 porque Reactor (`Mono`/`Flux`) es impresci
 
 ### Día 3 — Miércoles 30/09 · Cliente reactivo, seguridad y rendimiento HTTP
 
-| Bloque | Tema del temario |
-|---|---|
-| `WebClient`: configuración, `retrieve` vs `exchange`, cuerpos, filtros, atributos, `Context`, timeouts y reintentos, uso síncrono, *HTTP Service Client* (`@HttpExchange`) | **WebClient** |
-| Spring Security reactivo: `SecurityWebFilterChain`, `ReactiveUserDetailsService`, autorización por rutas y métodos, CSRF, cabeceras de seguridad, JWT / OAuth2 Resource Server | **Seguridad web** |
-| `Cache-Control`, `ETag`, `Last-Modified`, peticiones condicionales, caché de recursos estáticos, *Range requests* | **Caché HTTP** |
-| HTTP/2 en Reactor Netty (h2 y h2c), TLS, configuración en Spring Boot | **HTTP/2** |
+| Horario | Bloque | Tema del temario |
+|---|---|---|
+| 09:30 – 09:45 | Repaso del día 2, importar `examples/day-03` | — |
+| 09:45 – 10:35 | Spring Security reactivo: `SecurityWebFilterChain`, `ReactiveUserDetailsService`, autorización por rutas y métodos, CSRF, cabeceras, OAuth2 Resource Server (JWT) | **Seguridad web** |
+| 10:35 – 11:40 | Identidad entre microservicios: papel del IdP y de la gateway, *token relay*, *token exchange* (RFC 8693), *client credentials*, identidad a través de un broker | **Seguridad web** (II) |
+| 11:40 – 12:00 | *Descanso* | |
+| 12:00 – 13:15 | `WebClient`: configuración, `retrieve` vs `exchangeToMono`, cuerpos, filtros, atributos, `Context`, *timeouts* y reintentos, uso síncrono, *HTTP Service Client* (`@HttpExchange`); la cadena reactiva entre microservicios (BFF) sin bloquear | **WebClient** |
+| 13:15 – 13:50 | `Cache-Control`, `ETag`, `Last-Modified`, peticiones condicionales, caché de recursos estáticos, *Range requests* | **Caché HTTP** |
+| 13:50 – 14:15 | HTTP/2 en Reactor Netty (h2 y h2c), TLS con SSL bundles, `WebClient` sobre HTTP/2 | **HTTP/2** |
+| 14:15 – 14:30 | Repaso y autoevaluación | — |
+
+➡️ [Teoría y laboratorio del día 3](day-03/README.md) · [Ejemplo del día 3](../examples/day-03/README.md)
 
 ### Día 4 — Jueves 01/10 · Tiempo real, vistas, pruebas y cierre
 
