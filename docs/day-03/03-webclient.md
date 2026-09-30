@@ -56,6 +56,102 @@ curl -s localhost:8080/api/bff/orders/{id} -H "X-Request-Id: demo-1"
  "totalAtPurchase":587.90,"totalAtCurrentPrices":587.90,"complete":true}
 ```
 
+También se puede lanzar todo desde <http://localhost:8080> (sección "Día 3 — BFF con WebClient"), sin `curl` ni
+extensiones.
+
+### El recorrido en 3 pasos: configuración, contexto y credenciales
+
+Antes de entrar en detalle, la idea completa. **El ejemplo no pasa credenciales** (no activa Spring Security): lo
+que viaja de un servicio a otro es un `X-Request-Id`. Pero lo hace con **el mismo mecanismo** que se usa para el
+token: si se entiende cómo viaja el `X-Request-Id`, se entiende cómo viajaría el token.
+
+#### Paso 1 — Configurar los clientes
+
+1. Spring Boot aporta un **`WebClient.Builder` ya preparado** (dependencia `spring-boot-starter-webclient`), con
+   Jackson, los *timeouts* de `application.properties` y los "personalizadores" que haya en la aplicación.
+2. Con ese builder se crea el **cliente del catálogo**; solo hay que darle la URL:
+
+   ```java
+   // client/ClientConfig.java
+   @Bean
+   WebClient catalogWebClient(WebClient.Builder builder, @Value("${app.services.catalog.base-url}") String baseUrl) {
+       return builder.baseUrl(baseUrl).build();      // http://localhost:8080
+   }
+   ```
+
+   `client/CatalogClient` lo usa: `webClient.get().uri("/api/products/{id}", id).retrieve()...`
+3. El **cliente de pedidos** ni siquiera se programa: se **declara** como interfaz (`client/OrdersApi`,
+   `@HttpExchange`) y Spring genera la implementación, con WebClient por debajo, gracias a
+   `@ImportHttpServices(group = "orders", ...)`. La URL sale de `spring.http.serviceclient.orders.base-url`.
+
+#### Paso 2 — Llevar un dato de la petición entrante a las salientes
+
+Dos clases: una **escribe** el dato al entrar la petición y otra lo **lee** al salir cada llamada.
+
+```text
+Petición entrante (X-Request-Id: demo-1)
+   │
+   ▼
+core/CorrelationIdWebFilter ─── guarda "demo-1" en el Context de Reactor
+   │
+   ▼
+OrderSummaryController → OrderSummaryService → webClient.get()...  (no saben nada de la cabecera)
+   │
+   ▼
+client/CorrelationIdPropagation ─── lee "demo-1" del Context y añade la cabecera
+   │
+   ▼
+Petición saliente a pedidos y a catálogo (X-Request-Id: demo-1)
+```
+
+```java
+// Entrada: core/CorrelationIdWebFilter
+return chain.filter(exchange)
+        .contextWrite(context -> context.put(CorrelationId.CONTEXT_KEY, id));   // guarda
+
+// Salida: client/CorrelationIdPropagation (un ExchangeFilterFunction)
+(request, next) -> Mono.deferContextual(context ->                           // lee
+        next.exchange(ClientRequest.from(request)
+                .header("X-Request-Id", ...valor del context...)             // añade la cabecera
+                .build()))
+```
+
+`CorrelationIdPropagation` es un `WebClientCustomizer`, así que Spring Boot **lo aplica solo a todos los WebClient
+que crea**: al del catálogo y al de pedidos. Ni el servicio ni el controlador tienen que hacer nada.
+
+**¿Por qué el `Context` y no una variable normal?** En WebFlux una petición cambia de hilo varias veces y un hilo
+atiende muchas peticiones a la vez: una variable del hilo (`ThreadLocal`) devolvería el valor de **otra**
+petición. El `Context` de Reactor va pegado a la **petición** (a su suscripción), no al hilo.
+
+#### Paso 3 — Las credenciales van exactamente igual
+
+Con Spring Security, **el paso de entrada ya lo hace Spring**: al validar el token de la petición, lo guarda en ese
+mismo `Context`. Solo hay que poner el filtro de salida, que Spring también trae hecho:
+
+| | Lo que hace el ejemplo | Lo mismo con el token del usuario |
+|---|---|---|
+| Entrada: guardar en el `Context` | `CorrelationIdWebFilter` (nuestro) | `AuthenticationWebFilter` (Spring Security, automático) |
+| Salida: leer del `Context` y añadir la cabecera | `CorrelationIdPropagation` → `X-Request-Id: demo-1` | `ServerBearerExchangeFilterFunction` → `Authorization: Bearer eyJ...` |
+
+```java
+builder.baseUrl(baseUrl)
+       .filter(new ServerBearerExchangeFilterFunction())   // lee el token del Context y lo reenvía
+       .build();
+```
+
+Si en lugar de reenviar el token del usuario el servicio debe llamar con **su propio token** (*client
+credentials*) o con un token **canjeado** en el IdP (*token exchange*), solo cambia el filtro:
+`ServerOAuth2AuthorizedClientExchangeFilterFunction`. Qué opción elegir en cada caso:
+[2.3](02-identidad-entre-microservicios.md#23-alternativas-para-pasar-la-identidad-entre-servicios-http) y
+[2.4](02-identidad-entre-microservicios.md#24-cómo-se-implementa-en-webflux-sin-bloquear).
+
+**Por eso no se puede usar `block()` ni `subscribe()` dentro de la cadena:** crean una suscripción nueva, **sin**
+el `Context` de la petición. La llamada saldría sin `X-Request-Id` o, con seguridad, **sin token**, y el otro
+servicio respondería 401. El endpoint `/api/bff/orders/{id}/blocking` muestra el caso extremo (sección 3.11).
+
+Cada paso en detalle: configuración en [3.3](#33-crear-y-configurar-un-webclient) y
+[3.9](#39-http-service-client-httpexchange); el `Context` en [3.7](#37-context-propagar-datos-sin-threadlocal).
+
 ## 3.3 Crear y configurar un WebClient
 
 > ⚠️ **Novedad de Spring Boot 4**: la autoconfiguración de `WebClient` está en su propio *starter*.

@@ -282,6 +282,7 @@ spring:
 `CorrelationIdWebFilter` lo escribe en el `Context` y `CorrelationIdPropagation` (un `ExchangeFilterFunction`)
 lo añade a cada llamada. 📄 `OrderSummaryControllerTest.propagatesTheCorrelationIdToEveryDownstreamCall` comprueba
 que llega a las 4 llamadas salientes (1 a pedidos + 3 al catálogo).
+Explicado paso a paso, con la comparación directa con el token: [3.2 — El recorrido en 3 pasos](03-webclient.md#el-recorrido-en-3-pasos-configuración-contexto-y-credenciales).
 
 ## 2.5 Identidad a través de un broker (Kafka, RabbitMQ...)
 

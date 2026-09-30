@@ -90,6 +90,7 @@ Arrastrados de días anteriores y que siguen aplicando: *starters* de test modul
 
 | Concepto | Dónde verlo en `examples/day-03` |
 |---|---|
+| **Resumen: cómo se configura WebClient y cómo pasaría el token entre microservicios** | [03-webclient.md — El recorrido en 3 pasos](03-webclient.md#el-recorrido-en-3-pasos-configuración-contexto-y-credenciales) |
 | El `Context` de Reactor en lugar de `ThreadLocal` (mismo mecanismo que el `SecurityContext`) | `core/CorrelationIdWebFilter.java` (escribe), `client/CorrelationIdPropagation.java` (lee) |
 | `WebClient` desde el `WebClient.Builder` de Boot | `client/ClientConfig.java` |
 | `retrieve()`, 404 → vacío, `timeout`, `retryWhen` | `client/CatalogClient.java` |
