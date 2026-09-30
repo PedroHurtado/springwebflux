@@ -84,10 +84,16 @@ WebClient.builder()
         .build();
 
 // h2 con TLS: HttpProtocol.H2 + .secure(...) con el certificado de confianza (o un SSL bundle de Boot)
+GenericSslContextSpec<?> tls = Http2SslContextSpec.forClient();   // ver la nota
 HttpClient.create()
         .protocol(HttpProtocol.H2, HttpProtocol.HTTP11)      // ofrece ambos; ALPN elige
-        .secure(ssl -> ssl.sslContext(Http2SslContextSpec.forClient()));
+        .secure(ssl -> ssl.sslContext(tls));
 ```
+
+> ⚠️ En Reactor Netty 1.3, `sslContext(ProtocolSslContextSpec)` está **obsoleto** y se sustituye por
+> `sslContext(GenericSslContextSpec<?>)`. Como `Http2SslContextSpec` implementa las dos interfaces, si se pasa
+> directamente (`ssl.sslContext(Http2SslContextSpec.forClient())`) Java elige la sobrecarga más específica, que es
+> la obsoleta. Por eso la variable se declara con el tipo `SslProvider.GenericSslContextSpec<?>`.
 
 ## 5.5 Probarlo
 

@@ -11,6 +11,7 @@ import reactor.core.publisher.Mono;
 import reactor.netty.http.Http2SslContextSpec;
 import reactor.netty.http.HttpProtocol;
 import reactor.netty.http.client.HttpClient;
+import reactor.netty.tcp.SslProvider.GenericSslContextSpec;
 import reactor.test.StepVerifier;
 
 /**
@@ -28,10 +29,13 @@ class Http2TlsTest {
 
     @Test
     void negotiatesH2OverTls() {
+        // Tipo GenericSslContextSpec<?> a propósito: Http2SslContextSpec también es ProtocolSslContextSpec y,
+        // sin él, Java elegiría la sobrecarga sslContext(ProtocolSslContextSpec), obsoleta en Reactor Netty 1.3
+        GenericSslContextSpec<?> tls = Http2SslContextSpec.forClient()
+                .configure(builder -> builder.trustManager(InsecureTrustManagerFactory.INSTANCE));
         HttpClient h2 = HttpClient.create()
                 .protocol(HttpProtocol.H2)
-                .secure(ssl -> ssl.sslContext(Http2SslContextSpec.forClient()
-                        .configure(builder -> builder.trustManager(InsecureTrustManagerFactory.INSTANCE))));
+                .secure(ssl -> ssl.sslContext(tls));
 
         StepVerifier.create(h2.get()
                         .uri("https://localhost:" + port + "/api/products/count")
