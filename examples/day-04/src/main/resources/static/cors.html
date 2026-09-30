@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Día 3 - Demo CORS</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; }
+    code { background: #f2f2f2; padding: 0 .3rem; }
+    button { margin: .2rem 0; }
+    pre { background: #f7f7f7; padding: .6rem; white-space: pre-wrap; min-height: 3rem; }
+    .warn { background: #fff4ce; padding: .6rem; }
+  </style>
+</head>
+<body>
+  <h1>Demo CORS — Día 3</h1>
+  <p id="origin"></p>
+  <p class="warn">Abre esta página en <a href="http://127.0.0.1:8080/cors.html">http://127.0.0.1:8080/cors.html</a>.
+    Las peticiones van a <code>http://localhost:8080</code>: cambia el <em>host</em>, así que es <strong>otro origen</strong>.
+    Abre DevTools → <em>Network</em> y observa las peticiones <code>OPTIONS</code> (preflight).</p>
+
+  <ol>
+    <li><button id="simple">GET /api/products/count</button> — petición "simple": sin preflight</li>
+    <li><button id="post">POST /api/orders (JSON)</button> — Content-Type JSON → preflight; lee la cabecera <code>Location</code> (expuesta)</li>
+    <li><button id="version">GET /api/products/4 con API-Version: 2.0</button> — cabecera propia permitida → preflight</li>
+    <li><button id="patch">PATCH /api/products/1</button> — método NO permitido → el navegador bloquea la petición</li>
+  </ol>
+  <pre id="out">Pulsa un botón…</pre>
+
+  <script>
+    const api = 'http://localhost:8080';
+    const out = document.getElementById('out');
+    document.getElementById('origin').textContent = 'Origen de esta página: ' + location.origin;
+
+    async function call(label, url, options) {
+      out.textContent = label + ' …';
+      try {
+        const res = await fetch(api + url, options);
+        const text = await res.text();
+        out.textContent = `${label}\nHTTP ${res.status}\nLocation: ${res.headers.get('Location')}\n\n${text}`;
+      } catch (e) {
+        out.textContent = `${label}\n❌ Bloqueada por el navegador (${e.message}).\nMira la consola: "...has been blocked by CORS policy".`;
+      }
+    }
+
+    document.getElementById('simple').onclick = () => call('GET count', '/api/products/count');
+    document.getElementById('post').onclick = () => call('POST pedido', '/api/orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customerId: 'navegador', details: [{ productId: '2', quantity: 1 }] })
+    });
+    document.getElementById('version').onclick = () => call('GET v2', '/api/products/4', {
+      headers: { 'API-Version': '2.0' }
+    });
+    document.getElementById('patch').onclick = () => call('PATCH', '/api/products/1', { method: 'PATCH' });
+  </script>
+</body>
+</html>

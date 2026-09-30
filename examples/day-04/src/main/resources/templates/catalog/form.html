@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="es">
+<head th:replace="~{fragments :: head('Nuevo producto')}"></head>
+<body>
+<nav th:replace="~{fragments :: nav}"></nav>
+
+<h1>Nuevo producto</h1>
+
+<!--
+  th:object: el objeto de formulario del modelo ("product", un ProductForm).
+  th:field="*{name}": genera id, name y value del campo y, si hubo errores, conserva lo escrito.
+  th:errors="*{name}": mensajes de Bean Validation del BindingResult para ese campo.
+  novalidate: se desactiva la validación del navegador para ver la del servidor.
+-->
+<form th:action="@{/catalog}" th:object="${product}" method="post" novalidate>
+  <p th:if="${#fields.hasErrors('*')}" class="error">Revisa los campos marcados.</p>
+  <p>
+    <label for="name">Nombre</label>
+    <input th:field="*{name}" type="text" maxlength="60">
+    <span class="error" th:if="${#fields.hasErrors('name')}" th:errors="*{name}">obligatorio</span>
+  </p>
+  <p>
+    <label for="category">Categoría</label>
+    <input th:field="*{category}" type="text">
+    <span class="error" th:if="${#fields.hasErrors('category')}" th:errors="*{category}">obligatoria</span>
+  </p>
+  <p>
+    <label for="price">Precio</label>
+    <input th:field="*{price}" type="text" placeholder="39.90">
+    <span class="error" th:if="${#fields.hasErrors('price')}" th:errors="*{price}">obligatorio</span>
+  </p>
+  <p>
+    <label for="stock">Stock</label>
+    <input th:field="*{stock}" type="number">
+    <span class="error" th:if="${#fields.hasErrors('stock')}" th:errors="*{stock}">obligatorio</span>
+  </p>
+  <button type="submit">Guardar</button>
+</form>
+</body>
+</html>

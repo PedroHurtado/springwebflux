@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="es">
+<head th:replace="~{fragments :: head('Catálogo')}"></head>
+<body>
+<nav th:replace="~{fragments :: nav}"></nav>
+
+<h1>Catálogo <small th:if="${category}" th:text="'· ' + ${category}">· categoría</small></h1>
+<p class="hint">Modo normal: el <code>Flux&lt;Product&gt;</code> del modelo se ha resuelto ANTES de generar la página
+  (llega completa de una vez).</p>
+
+<p>Filtrar:
+  <a th:href="@{/catalog}">todas</a> ·
+  <a th:href="@{/catalog(category='perifericos')}">periféricos</a> ·
+  <a th:href="@{/catalog(category='monitores')}">monitores</a> ·
+  <a th:href="@{/catalog(category='portatiles')}">portátiles</a> ·
+  <a th:href="@{/catalog(category='audio')}">audio</a>
+</p>
+
+<table>
+  <thead><tr><th>Producto</th><th>Categoría</th><th class="num">Precio</th><th class="num">Stock</th></tr></thead>
+  <tbody>
+    <!-- products ya es una List: WebFlux resolvió el Flux antes de renderizar -->
+    <tr th:each="p : ${products}">
+      <td><a th:href="@{/catalog/{id}(id=${p.id})}" th:text="${p.name}">Teclado</a></td>
+      <td th:text="${p.category}">perifericos</td>
+      <td class="num" th:text="${#numbers.formatDecimal(p.price, 1, 'POINT', 2, 'COMMA')} + ' €'">89,90 €</td>
+      <td class="num" th:text="${p.stock}" th:classappend="${p.stock < 10} ? 'low'">25</td>
+    </tr>
+    <tr th:if="${#lists.isEmpty(products)}"><td colspan="4">No hay productos en esta categoría.</td></tr>
+  </tbody>
+</table>
+</body>
+</html>

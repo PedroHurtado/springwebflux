@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="es">
+<head th:replace="~{fragments :: head(${product.name})}"></head>
+<body>
+<nav th:replace="~{fragments :: nav}"></nav>
+
+<h1 th:text="${product.name}">Teclado mecánico</h1>
+<table>
+  <tr><th>Id</th><td th:text="${product.id}">1</td></tr>
+  <tr><th>Categoría</th><td><a th:href="@{/catalog(category=${product.category})}" th:text="${product.category}">perifericos</a></td></tr>
+  <tr><th>Precio</th><td th:text="${#numbers.formatDecimal(product.price, 1, 'POINT', 2, 'COMMA')} + ' €'">89,90 €</td></tr>
+  <tr><th>Precio con IVA</th><td th:text="${#numbers.formatDecimal(priceWithVat, 1, 'POINT', 2, 'COMMA')} + ' €'">108,78 €</td></tr>
+  <tr><th>Stock</th><td th:text="${product.stock}" th:classappend="${product.stock < 10} ? 'low'">25</td></tr>
+  <tr><th>Versión</th><td th:text="${product.version}">0</td></tr>
+</table>
+<p class="hint">La versión es la columna <code>@Version</code> de la base de datos: cambia con cada modificación
+  (el ticker de precios, una reserva de stock...). Recarga la página con los precios en tiempo real abiertos.</p>
+<p><a th:href="@{/api/products/{id}(id=${product.id})}">Ver como JSON (API)</a></p>
+</body>
+</html>

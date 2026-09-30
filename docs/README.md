@@ -45,7 +45,7 @@ examples/
   day-01/              <- proyecto Spring Boot del día 1 (catálogo reactivo)
   day-02/              <- día 2: catálogo + pedidos (Order -> OrderDetail -> Product)
   day-03/              <- día 3: + BFF con WebClient, caché HTTP, HTTP/2
-  day-0N/              <- cada día evoluciona el mismo dominio (catálogo de productos)
+  day-04/              <- día 4: + datos en H2 (R2DBC), vistas Thymeleaf, WebSockets, pruebas
 ```
 
 Todos los ejemplos trabajan sobre **el mismo dominio: un catálogo de productos reactivo**. Cada día parte del
@@ -104,15 +104,21 @@ reactivas*, que se adelanta al día 1 porque Reactor (`Mono`/`Flux`) es impresci
 
 ➡️ [Teoría y laboratorio del día 3](day-03/README.md) · [Ejemplo del día 3](../examples/day-03/README.md)
 
-### Día 4 — Jueves 01/10 · Tiempo real, vistas, pruebas y cierre
+### Día 4 — Jueves 01/10 · Datos, tiempo real, vistas, pruebas y cierre
 
-| Bloque | Tema del temario |
-|---|---|
-| Thymeleaf reactivo, `Rendering`, modo *data-driven* (`ReactiveDataDriverContextVariable`), otras plantillas | **Tecnologías para las vistas** |
-| `WebSocketHandler`, `WebSocketSession`, mapeo con `SimpleUrlHandlerMapping`, cliente WebSocket, comparación con SSE | **WebSockets** |
-| `StepVerifier` avanzado, tiempo virtual, `WebTestClient` (con servidor, *bind to controller/router*), `@WebFluxTest`, `@MockitoBean`, BlockHound | **Pruebas** |
-| Interoperabilidad: RxJava, corrutinas de Kotlin, `ReactiveAdapterRegistry`; acceso a datos reactivo (R2DBC) como caso práctico; `Context` de Reactor | **Bibliotecas reactivas** (II) |
-| Proyecto integrador, repaso general y evaluación | — |
+| Horario | Bloque | Tema del temario |
+|---|---|---|
+| 09:30 – 09:45 | Repaso del día 3, importar `examples/day-04` | — |
+| 09:45 – 10:50 | Acceso a datos reactivo con R2DBC y H2: Spring Data R2DBC, `DatabaseClient`, agregados, transacciones reactivas, bloqueo optimista | **Bibliotecas reactivas** (II) |
+| 10:50 – 11:40 | Thymeleaf reactivo: modelo reactivo, modo *data-driven*, `Rendering`, formularios; otras plantillas | **Tecnologías para las vistas** |
+| 11:40 – 12:00 | *Descanso* | |
+| 12:00 – 12:50 | `WebSocketHandler`, `WebSocketSession`, `SimpleUrlHandlerMapping`, `Sinks`, cliente WebSocket, comparación con SSE | **WebSockets** |
+| 12:50 – 13:40 | `StepVerifier` avanzado, `TestPublisher`, `PublisherProbe`, `WebTestClient` (`bindTo...`), `@WebFluxTest`, `@DataR2dbcTest`, `@MockitoBean`, BlockHound | **Pruebas** |
+| 13:40 – 14:00 | RxJava, `CompletableFuture`, corrutinas de Kotlin, `ReactiveAdapterRegistry`; `Context` de Reactor y propagación al MDC | **Bibliotecas reactivas** (II) |
+| 14:00 – 14:30 | Cierre: repaso general, evaluación final, cuándo usar WebFlux, siguientes pasos (proyecto integrador para casa) | — |
+
+➡️ [Teoría y laboratorio del día 4](day-04/README.md) · [Ejemplo del día 4](../examples/day-04/README.md) ·
+[Cierre del curso](day-04/07-cierre-del-curso.md)
 
 ### Matriz de cobertura del temario
 
@@ -133,7 +139,7 @@ reactivas*, que se adelanta al día 1 porque Reactor (`Mono`/`Flux`) es impresci
 | 13 | WebClient | 3 | [WebClient](https://docs.spring.io/spring-framework/reference/web/webflux-webclient.html) |
 | 14 | WebSockets | 4 | [WebSockets](https://docs.spring.io/spring-framework/reference/web/webflux-websocket.html) |
 | 15 | Pruebas | 1 (intro) – 4 | [Testing](https://docs.spring.io/spring-framework/reference/web/webflux-test.html) · [WebTestClient](https://docs.spring.io/spring-framework/reference/testing/webtestclient.html) |
-| 16 | Bibliotecas reactivas | 1 – 4 | [Reactive Libraries](https://docs.spring.io/spring-framework/reference/web/webflux-reactive-libraries.html) · [Reactor](https://projectreactor.io/docs/core/release/reference/) |
+| 16 | Bibliotecas reactivas | 1 – 4 (día 4: R2DBC, RxJava, `Context`) | [Reactive Libraries](https://docs.spring.io/spring-framework/reference/web/webflux-reactive-libraries.html) · [Reactor](https://projectreactor.io/docs/core/release/reference/) |
 
 ## Metodología
 

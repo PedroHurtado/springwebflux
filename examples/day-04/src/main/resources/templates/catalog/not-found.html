@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="es">
+<head th:replace="~{fragments :: head('Producto no encontrado')}"></head>
+<body>
+<nav th:replace="~{fragments :: nav}"></nav>
+
+<h1>Producto no encontrado</h1>
+<p>No existe ningún producto con id <code th:text="${productId}">99</code>.</p>
+<p><a th:href="@{/catalog}">Volver al catálogo</a></p>
+</body>
+</html>

@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Día 4 - Catálogo y pedidos</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; }
+    code { background: #f2f2f2; padding: 0 .3rem; }
+    table { border-collapse: collapse; width: 100%; }
+    td, th { border-bottom: 1px solid #ddd; padding: .4rem; text-align: left; }
+    .up { color: #0a7d2c; } .down { color: #b3261e; }
+    fieldset { margin: 1rem 0; border: 1px solid #ccc; border-radius: 6px; }
+    textarea { width: 100%; font-family: ui-monospace, monospace; box-sizing: border-box; }
+    label { display: inline-block; margin: .3rem 1rem .3rem 0; }
+    .buttons { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .5rem; }
+    .hint { color: #555; font-size: .9rem; }
+    .request { font-family: ui-monospace, monospace; font-size: .9rem; padding: .4rem; }
+    .request.ok { background: #e8f5e9; } .request.error { background: #fdecea; }
+    pre { background: #f6f6f6; padding: .8rem; overflow-x: auto; max-height: 420px; }
+  </style>
+</head>
+<body>
+  <h1>Catálogo reactivo — Día 4</h1>
+  <h2>Día 4 — Novedades</h2>
+  <ul>
+    <li><a href="/catalog">/catalog</a> — vistas Thymeleaf: listado (modo normal), <a href="/catalog/live">/catalog/live</a>
+        (modo <em>data-driven</em>: la tabla llega fila a fila), <a href="/catalog/3">ficha</a> (<code>Rendering</code>),
+        <a href="/catalog/new">formulario</a> (validación + redirección)</li>
+    <li><a href="/ws.html">WebSockets</a> — eco, precios con comandos del cliente y chat entre pestañas</li>
+    <li><a href="/api/interop/rx/low-stock">/api/interop/rx/low-stock</a> (RxJava <code>Flowable</code>),
+        <a href="/api/interop/rx/products/3">/api/interop/rx/products/3</a> (<code>Single</code>),
+        <a href="/api/interop/future/count">/api/interop/future/count</a> (<code>CompletableFuture</code>)</li>
+    <li>Los datos viven ahora en <strong>H2</strong> (R2DBC): los cambios de precio y los pedidos modifican la base de datos;
+        el <code>ETag</code> de <a href="/api/products/3">/api/products/3</a> sale de la columna <code>version</code>.</li>
+  </ul>
+  <h2>Precios en tiempo real (SSE)</h2>
+  <p>Precios en tiempo real vía <strong>Server-Sent Events</strong>
+     (<code>GET /api/products/prices</code>, <code>text/event-stream</code>).</p>
+  <button id="toggle">Parar</button>
+  <table>
+    <thead><tr><th>Producto</th><th>Anterior</th><th>Nuevo</th><th>Hora</th></tr></thead>
+    <tbody id="events"></tbody>
+  </table>
+  <h2>Otros endpoints</h2>
+  <ul>
+    <li><a href="/api/products">/api/products</a> (JSON)</li>
+    <li><a href="/api/products/search?category=perifericos&amp;maxPrice=100&amp;sort=price-desc">/api/products/search?category=perifericos&amp;maxPrice=100&amp;sort=price-desc</a> (data binding)</li>
+    <li><a href="/api/products/top?limit=50">/api/products/top?limit=50</a> (validación de parámetros → ProblemDetail 400)</li>
+    <li><a href="/api/products/no-existe">/api/products/no-existe</a> (ProblemDetail 404)</li>
+    <li><a href="/api/orders">/api/orders</a> (endpoint funcional)</li>
+    <li><a href="/api/annotated/orders">/api/annotated/orders</a> (los mismos pedidos con un controlador anotado)</li>
+    <li><a href="http://127.0.0.1:8080/cors.html">Demo CORS</a> (se abre desde otro origen)</li>
+    <li><a href="/api/products/3">/api/products/3</a> (ETag + Cache-Control; en DevTools, recarga y verás 304)</li>
+    <li><a href="/actuator/mappings">/actuator/mappings</a> (rutas anotadas y funcionales)</li>
+  </ul>
+
+  <h2>Día 3 — BFF con WebClient</h2>
+  <p>El BFF (<code>/api/bff/orders/{id}</code>) llama por HTTP al microservicio de pedidos y, <strong>en paralelo</strong>,
+     al de catálogo (una llamada por línea). Mira también el <strong>log del servidor</strong>: todas las llamadas de un
+     mismo resumen llevan el mismo <code>X-Request-Id</code>.</p>
+
+  <fieldset>
+    <legend>1. Crear un pedido (<code>POST /api/orders</code>)</legend>
+    <textarea id="orderBody" rows="9" spellcheck="false">{
+  "customerId": "cliente-1",
+  "details": [
+    { "productId": "1", "quantity": 1 },
+    { "productId": "3", "quantity": 2 },
+    { "productId": "4", "quantity": 1 }
+  ]
+}</textarea>
+    <button id="create">Crear pedido</button>
+  </fieldset>
+
+  <fieldset>
+    <legend>2. Consultarlo a través del BFF</legend>
+    <label>Id del pedido <input id="orderId" size="40" placeholder="se rellena al crear el pedido"></label>
+    <label>X-Request-Id <input id="requestId" value="demo-1" size="12"></label>
+    <div class="buttons">
+      <button data-action="summary">Resumen (JSON)</button>
+      <button data-action="lines">Líneas en streaming (NDJSON)</button>
+      <button data-action="blocking">❌ Versión bloqueante</button>
+      <button data-action="missing">Pedido inexistente</button>
+      <button data-action="delete4">Borrar producto 4</button>
+    </div>
+    <p class="hint">Prueba: pide el resumen, pulsa <em>Borrar producto 4</em> y vuelve a pedirlo: esa línea pasa a
+       <code>DISCONTINUED</code>, pero el resumen no falla (degradación).</p>
+  </fieldset>
+
+  <div id="request" class="request"></div>
+  <pre id="output">Aquí aparecerá la respuesta.</pre>
+
+  <script>
+    // ---------- Día 3: BFF ----------
+    const output = document.getElementById('output');
+    const requestInfo = document.getElementById('request');
+    const orderIdInput = document.getElementById('orderId');
+    const requestIdInput = document.getElementById('requestId');
+
+    function showRequest(method, url, response, extra = '') {
+      const status = response ? `${response.status} ${response.statusText}` : '…';
+      const id = response?.headers.get('X-Request-Id') ?? '';
+      const time = response?.headers.get('X-Response-Time') ?? '';
+      requestInfo.textContent = `${method} ${url}  →  ${status}`
+          + (id ? `  ·  X-Request-Id: ${id}` : '') + (time ? `  ·  ${time}` : '') + extra;
+      requestInfo.className = 'request ' + (response && !response.ok ? 'error' : 'ok');
+    }
+
+    async function show(method, url, options = {}) {
+      output.textContent = '…';
+      const response = await fetch(url, { method, ...options });
+      const text = await response.text();
+      showRequest(method, url, response);
+      try { output.textContent = text ? JSON.stringify(JSON.parse(text), null, 2) : '(sin cuerpo)'; }
+      catch { output.textContent = text; }
+      return { response, text };
+    }
+
+    function orderId() {
+      const id = orderIdInput.value.trim();
+      if (!id) { output.textContent = 'Primero crea un pedido (paso 1).'; requestInfo.textContent = ''; }
+      return id;
+    }
+
+    const headers = () => ({ 'X-Request-Id': requestIdInput.value.trim() || 'demo' });
+
+    document.getElementById('create').onclick = async () => {
+      const { response, text } = await show('POST', '/api/orders', {
+        headers: { 'Content-Type': 'application/json', ...headers() },
+        body: document.getElementById('orderBody').value
+      });
+      if (response.status === 201) orderIdInput.value = JSON.parse(text).id;
+    };
+
+    // Streaming: se lee el cuerpo por trozos y se pinta cada línea NDJSON en cuanto llega
+    async function streamLines(url) {
+      output.textContent = '';
+      const start = performance.now();
+      const response = await fetch(url, { headers: { Accept: 'application/x-ndjson', ...headers() } });
+      showRequest('GET', url, response);
+      if (!response.ok) { output.textContent = await response.text(); return; }
+      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buffer = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += value;
+        const lines = buffer.split('\n');
+        buffer = lines.pop();                       // la última puede estar incompleta
+        for (const line of lines.filter(l => l.trim())) {
+          output.textContent += `+${Math.round(performance.now() - start)} ms  ${line}\n`;
+        }
+      }
+      output.textContent += `\nFin del stream (${Math.round(performance.now() - start)} ms)`;
+    }
+
+    document.querySelectorAll('[data-action]').forEach(button => button.onclick = () => {
+      const action = button.dataset.action;
+      if (action === 'missing') return show('GET', '/api/bff/orders/no-existe', { headers: headers() });
+      if (action === 'delete4') return show('DELETE', '/api/products/4', { headers: headers() });
+      const id = orderId();
+      if (!id) return;
+      if (action === 'summary') return show('GET', `/api/bff/orders/${id}`, { headers: headers() });
+      if (action === 'lines') return streamLines(`/api/bff/orders/${id}/lines`);
+      if (action === 'blocking') return show('GET', `/api/bff/orders/${id}/blocking`, { headers: headers() });
+    });
+  </script>
+
+  <script>
+    let source;
+    const tbody = document.getElementById('events');
+    const button = document.getElementById('toggle');
+
+    function start() {
+      source = new EventSource('/api/products/prices');
+      source.onmessage = (e) => {
+        const c = JSON.parse(e.data);
+        const row = document.createElement('tr');
+        const cls = c.newPrice >= c.oldPrice ? 'up' : 'down';
+        row.innerHTML = `<td>${c.name}</td><td>${c.oldPrice}</td><td class="${cls}">${c.newPrice}</td>`
+                      + `<td>${new Date().toLocaleTimeString()}</td>`;
+        tbody.prepend(row);
+        while (tbody.children.length > 15) tbody.lastChild.remove();
+      };
+      button.textContent = 'Parar';
+    }
+
+    button.onclick = () => {
+      if (source && source.readyState !== EventSource.CLOSED) { source.close(); button.textContent = 'Reanudar'; }
+      else start();
+    };
+    start();
+  </script>
+</body>
+</html>

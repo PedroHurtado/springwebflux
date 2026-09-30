@@ -1,0 +1,147 @@
+### Día 4 — Datos (R2DBC + H2), vistas, WebSockets e interoperabilidad
+### Las secciones 1-3 son las del día 3 (BFF, caché HTTP) y siguen funcionando igual, ahora sobre H2.
+### Las peticiones del día 2 (binding, validación, pedidos, CORS): ver examples/day-02/requests.http
+### WebSockets: REST Client no los soporta; usa http://localhost:8080/ws.html
+@host = http://localhost:8080
+
+########## 1. Punto de partida ##########
+
+### Catálogo (JSON)
+GET {{host}}/api/products
+
+### Crear un pedido (se usa en las secciones 2 y 3)
+# @name createOrder
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{
+  "customerId": "cliente-1",
+  "details": [
+    { "productId": "1", "quantity": 1 },
+    { "productId": "3", "quantity": 2 },
+    { "productId": "4", "quantity": 1 }
+  ]
+}
+
+@orderId = {{createOrder.response.body.$.id}}
+
+########## 2. WebClient: BFF que llama a pedidos y catálogo ##########
+
+### Resumen: 1 llamada a pedidos + N al catálogo EN PARALELO (mira el log: mismo X-Request-Id en todas)
+GET {{host}}/api/bff/orders/{{orderId}}
+X-Request-Id: demo-1
+
+### Las mismas líneas en streaming (NDJSON): cada línea sale en cuanto responde el catálogo
+GET {{host}}/api/bff/orders/{{orderId}}/lines
+Accept: application/x-ndjson
+
+### Pedido inexistente: el 404 de pedidos se traduce a NUESTRO ProblemDetail 404
+GET {{host}}/api/bff/orders/no-existe
+
+### ❌ Anti-patrón: block() dentro del event loop -> 500 (IllegalStateException en el log)
+GET {{host}}/api/bff/orders/{{orderId}}/blocking
+
+### Borra el producto 4 y vuelve a pedir el resumen: su línea pasa a DISCONTINUED (degradación, no error)
+DELETE {{host}}/api/products/4
+
+###
+GET {{host}}/api/bff/orders/{{orderId}}
+
+########## 3. Caché HTTP ##########
+
+### Producto (recurso que cambia): ETag + Cache-Control: no-cache
+# @name product
+GET {{host}}/api/products/3
+
+### Revalidación con el ETag -> 304 Not Modified, sin cuerpo
+GET {{host}}/api/products/3
+If-None-Match: {{product.response.headers.ETag}}
+
+### Pedido (recurso inmutable): max-age=3600, private + ETag + Last-Modified (endpoint funcional)
+# @name order
+GET {{host}}/api/orders/{{orderId}}
+
+###
+GET {{host}}/api/orders/{{orderId}}
+If-Modified-Since: {{order.response.headers.Last-Modified}}
+
+### Recurso estático: max-age=600, public + Last-Modified (propiedades spring.web.resources.cache.*)
+GET {{host}}/index.html
+
+### Subir una imagen para el producto 2 (multipart)
+POST {{host}}/api/products/2/image
+Content-Type: multipart/form-data; boundary=curso
+
+--curso
+Content-Disposition: form-data; name="file"; filename="teclado.png"
+Content-Type: image/png
+
+< ./src/test/resources/teclado.png
+--curso--
+
+### Range request -> 206 Partial Content + Content-Range (los 10 primeros bytes)
+GET {{host}}/api/products/2/image
+Range: bytes=0-9
+
+### Rango imposible -> 416 Range Not Satisfiable
+GET {{host}}/api/products/2/image
+Range: bytes=5000-6000
+
+########## 4. Día 4 — Acceso a datos con R2DBC (H2) ##########
+
+### ETag = id + versión (@Version). Repite la petición con el ticker de precios abierto: la versión cambia
+GET {{host}}/api/products/4
+
+### Pedido de 3 portátiles (quedan 5): la reserva es un UPDATE ... WHERE stock >= 3 dentro de una transacción
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{ "customerId": "cliente-2", "details": [ { "productId": "4", "quantity": 3 } ] }
+
+### Otro igual -> 422: ya no hay stock (la validación lo detecta antes de reservar)
+POST {{host}}/api/orders
+Content-Type: application/json
+
+{ "customerId": "cliente-2", "details": [ { "productId": "4", "quantity": 3 } ] }
+
+### Los pedidos del cliente: una consulta con JOIN agrupada por pedido (OrderRepository)
+GET {{host}}/api/orders?customerId=cliente-2
+
+### top: ORDER BY price DESC LIMIT 2 en la base de datos (derived query + Limit)
+GET {{host}}/api/products/top?limit=2
+
+########## 5. Día 4 — Vistas (Thymeleaf) ##########
+
+### Página HTML en modo normal (el Flux se resuelve antes de renderizar)
+GET {{host}}/catalog?category=perifericos
+Accept: text/html
+
+### Modo data-driven: la respuesta llega por trozos (fíjate en el tiempo total, ~2 s)
+GET {{host}}/catalog/live
+
+### Producto inexistente -> página 404 (no ProblemDetail)
+GET {{host}}/catalog/no-existe
+
+### Formulario con errores -> 200 con el formulario y los mensajes
+POST {{host}}/catalog
+Content-Type: application/x-www-form-urlencoded
+
+name=Webcam&category=&price=-1&stock=3
+
+### Formulario correcto -> 303 See Other a /catalog/{id} (Post/Redirect/Get)
+POST {{host}}/catalog
+Content-Type: application/x-www-form-urlencoded
+
+name=Webcam&category=video&price=39.90&stock=12
+
+########## 6. Día 4 — Otras bibliotecas reactivas (ReactiveAdapterRegistry) ##########
+
+### RxJava Flowable
+GET {{host}}/api/interop/rx/low-stock?max=30
+Accept: application/x-ndjson
+
+### RxJava Single (404 -> ProblemDetail, igual que con Mono)
+GET {{host}}/api/interop/rx/products/99
+
+### CompletableFuture
+GET {{host}}/api/interop/future/count

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="es">
+<head th:replace="~{fragments :: head('Catálogo en directo')}"></head>
+<body>
+<nav th:replace="~{fragments :: nav}"></nav>
+
+<h1>Catálogo (modo data-driven)</h1>
+<p class="hint">La página se envía por trozos: esta cabecera llega enseguida y cada fila de la tabla se genera y se
+  envía cuando la base de datos entrega el producto (hay un retraso artificial de 400 ms por fila).
+  En DevTools → <em>Network</em> verás que la petición sigue abierta mientras llegan las filas.</p>
+
+<table>
+  <thead><tr><th>Producto</th><th>Categoría</th><th class="num">Precio</th><th class="num">Stock</th></tr></thead>
+  <tbody>
+    <!-- products es una ReactiveDataDriverContextVariable: th:each itera el Flux según emite -->
+    <tr th:each="p : ${products}">
+      <td><a th:href="@{/catalog/{id}(id=${p.id})}" th:text="${p.name}">Teclado</a></td>
+      <td th:text="${p.category}">perifericos</td>
+      <td class="num" th:text="${#numbers.formatDecimal(p.price, 1, 'POINT', 2, 'COMMA')} + ' €'">89,90 €</td>
+      <td class="num" th:text="${p.stock}" th:classappend="${p.stock < 10} ? 'low'">25</td>
+    </tr>
+  </tbody>
+</table>
+<p>Fin del catálogo.</p>
+</body>
+</html>

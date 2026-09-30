@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Día 4 - WebSockets</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    fieldset { margin: 1rem 0; border: 1px solid #ccc; border-radius: 6px; }
+    pre { background: #f6f6f6; padding: .6rem; height: 180px; overflow-y: auto; margin: .5rem 0 0; }
+    label { margin-right: .8rem; }
+    .state { font-size: .85rem; color: #555; }
+    code { background: #f2f2f2; padding: 0 .3rem; }
+  </style>
+</head>
+<body>
+  <p><a href="/">Inicio</a> · <a href="/catalog">Catálogo</a></p>
+  <h1>WebSockets — Día 4</h1>
+  <p>Una conexión WebSocket es bidireccional: el navegador y el servidor envían mensajes cuando quieren por la
+     misma conexión. En DevTools → <em>Network</em> → <em>WS</em> se ven los mensajes (<em>Messages</em>).</p>
+
+  <fieldset>
+    <legend>1. Eco (<code>ws://…/ws/echo</code>)</legend>
+    <input id="echoText" value="hola" size="30"> <button id="echoSend">Enviar</button>
+    <span class="state" id="echoState"></span>
+    <pre id="echoLog"></pre>
+  </fieldset>
+
+  <fieldset>
+    <legend>2. Precios en tiempo real con filtro (<code>ws://…/ws/prices</code>)</legend>
+    <p class="state">Marca los productos que quieres vigilar: cada cambio envía un comando
+      <code>{"productIds":[…]}</code> por la misma conexión (sin marcar ninguno = todos).</p>
+    <div id="productChecks"></div>
+    <button id="pricesToggle">Conectar</button> <span class="state" id="pricesState"></span>
+    <pre id="pricesLog"></pre>
+  </fieldset>
+
+  <fieldset>
+    <legend>3. Chat (<code>ws://…/ws/chat?name=…</code>)</legend>
+    <p class="state">Abre esta página en dos pestañas: lo que escribe una le llega a la otra.</p>
+    <label>Nombre <input id="chatName" value="Ana" size="10"></label>
+    <button id="chatConnect">Entrar</button>
+    <input id="chatText" size="30" placeholder="mensaje" disabled> <button id="chatSend" disabled>Enviar</button>
+    <pre id="chatLog"></pre>
+  </fieldset>
+
+  <script>
+    const wsUrl = path => (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + path;
+    const append = (id, text) => { const log = document.getElementById(id); log.textContent += text + '\n'; log.scrollTop = log.scrollHeight; };
+
+    // ---------- 1. Eco ----------
+    const echo = new WebSocket(wsUrl('/ws/echo'));
+    echo.onopen = () => document.getElementById('echoState').textContent = 'conectado';
+    echo.onclose = e => document.getElementById('echoState').textContent = `cerrado (${e.code})`;
+    echo.onmessage = e => append('echoLog', '← ' + e.data);
+    document.getElementById('echoSend').onclick = () => {
+      const text = document.getElementById('echoText').value;
+      append('echoLog', '→ ' + text);
+      echo.send(text);
+    };
+
+    // ---------- 2. Precios con comandos ----------
+    let prices = null;
+    const checks = document.getElementById('productChecks');
+    fetch('/api/products').then(r => r.json()).then(products => products.forEach(p => {
+      const label = document.createElement('label');
+      const box = Object.assign(document.createElement('input'), { type: 'checkbox', value: p.id });
+      label.append(box, ' ' + p.name);                 // texto, no HTML: el nombre lo puede escribir un usuario
+      checks.append(label);
+    }));
+    const watched = () => [...checks.querySelectorAll('input:checked')].map(c => c.value);
+    const sendWatch = () => {
+      if (prices?.readyState !== WebSocket.OPEN) return;
+      const command = JSON.stringify({ productIds: watched() });
+      append('pricesLog', '→ ' + command);
+      prices.send(command);
+    };
+    checks.onchange = sendWatch;
+    document.getElementById('pricesToggle').onclick = event => {
+      if (prices) { prices.close(); return; }
+      prices = new WebSocket(wsUrl('/ws/prices'));
+      prices.onopen = () => { document.getElementById('pricesState').textContent = 'conectado'; event.target.textContent = 'Desconectar'; sendWatch(); };
+      prices.onclose = e => { document.getElementById('pricesState').textContent = `cerrado (${e.code})`; event.target.textContent = 'Conectar'; prices = null; };
+      prices.onmessage = e => {
+        const c = JSON.parse(e.data);
+        append('pricesLog', `← ${new Date().toLocaleTimeString()}  ${c.name}: ${c.oldPrice} → ${c.newPrice}`);
+      };
+    };
+
+    // ---------- 3. Chat ----------
+    let chat = null;
+    document.getElementById('chatConnect').onclick = event => {
+      if (chat) { chat.close(); return; }
+      const name = encodeURIComponent(document.getElementById('chatName').value);
+      chat = new WebSocket(wsUrl('/ws/chat?name=' + name));
+      const enable = on => ['chatText', 'chatSend'].forEach(id => document.getElementById(id).disabled = !on);
+      chat.onopen = () => { enable(true); event.target.textContent = 'Salir'; append('chatLog', '(conectado)'); };
+      chat.onclose = () => { enable(false); event.target.textContent = 'Entrar'; append('chatLog', '(desconectado)'); chat = null; };
+      chat.onmessage = e => append('chatLog', e.data);
+    };
+    const sendChat = () => {
+      const input = document.getElementById('chatText');
+      if (chat && input.value.trim()) { chat.send(input.value); input.value = ''; }
+    };
+    document.getElementById('chatSend').onclick = sendChat;
+    document.getElementById('chatText').onkeydown = e => { if (e.key === 'Enter') sendChat(); };
+  </script>
+</body>
+</html>
